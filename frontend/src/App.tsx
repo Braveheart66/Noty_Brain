@@ -102,6 +102,25 @@ function truncateText(text: string, maxLength = 150): string {
   return `${text.slice(0, maxLength - 3)}...`;
 }
 
+function hashString(text: string): number {
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash << 5) - hash + text.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function linkEndpointId(endpoint: unknown): string {
+  if (typeof endpoint === "string") {
+    return endpoint;
+  }
+  if (endpoint && typeof endpoint === "object" && "id" in endpoint) {
+    return String((endpoint as { id: string }).id);
+  }
+  return "";
+}
+
 function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -280,7 +299,7 @@ function App() {
       degreeByNode.set(edge.target_note_id, (degreeByNode.get(edge.target_note_id) ?? 0) + 1);
     });
 
-    const nodes: GraphNode3D[] = visibleNodes.map((node) => {
+    const nodesRaw: GraphNode3D[] = visibleNodes.map((node) => {
       const clusterIndex = clusterIndexByNoteId.get(node.id) ?? -1;
       const degree = degreeByNode.get(node.id) ?? 0;
       return {
@@ -288,6 +307,42 @@ function App() {
         clusterIndex,
         color: clusterIndex >= 0 ? CLUSTER_PALETTE[clusterIndex % CLUSTER_PALETTE.length] : "#54606a",
         val: Math.max(3.8, 3 + degree * 1.2),
+      };
+    });
+
+    const uniqueClusters = [...new Set(nodesRaw.map((node) => node.clusterIndex).filter((value) => value >= 0))].sort(
+      (a, b) => a - b,
+    );
+    const clusterOrder = new Map<number, number>();
+    uniqueClusters.forEach((clusterId, index) => clusterOrder.set(clusterId, index));
+    const clusterCount = uniqueClusters.length;
+    const interClusterRadius = clusterCount > 1 ? Math.max(190, 130 + clusterCount * 45) : 0;
+
+    const nodes: GraphNode3D[] = nodesRaw.map((node) => {
+      if (node.clusterIndex < 0 || clusterCount <= 1) {
+        return node;
+      }
+
+      const order = clusterOrder.get(node.clusterIndex) ?? 0;
+      const centerAngle = (Math.PI * 2 * order) / clusterCount;
+      const centerX = Math.cos(centerAngle) * interClusterRadius;
+      const centerY = Math.sin(centerAngle) * interClusterRadius;
+      const centerZ = clusterCount > 2 ? (order % 2 === 0 ? 1 : -1) * interClusterRadius * 0.22 : 0;
+
+      const nodeHash = hashString(node.id);
+      const theta = ((nodeHash % 360) * Math.PI) / 180;
+      const phi = ((((nodeHash >> 3) % 160) + 10) * Math.PI) / 180;
+      const localRadius = 24 + (nodeHash % 34);
+
+      const localX = Math.sin(phi) * Math.cos(theta) * localRadius;
+      const localY = Math.sin(phi) * Math.sin(theta) * localRadius;
+      const localZ = Math.cos(phi) * localRadius;
+
+      return {
+        ...node,
+        x: centerX + localX,
+        y: centerY + localY,
+        z: centerZ + localZ,
       };
     });
 
@@ -309,6 +364,42 @@ function App() {
     }
     return graphSceneData.nodes.find((node) => node.id === selectedNodeId) ?? null;
   }, [graphSceneData.nodes, selectedNodeId]);
+
+  const nodeClusterById = useMemo(() => {
+    const mapping = new Map<string, number>();
+    graphSceneData.nodes.forEach((node) => mapping.set(node.id, node.clusterIndex));
+    return mapping;
+  }, [graphSceneData.nodes]);
+
+  const graphLinkDistance = (linkObject: object): number => {
+    const link = linkObject as GraphLink3D & { source: unknown; target: unknown };
+    const sourceId = linkEndpointId(link.source);
+    const targetId = linkEndpointId(link.target);
+    const sourceCluster = nodeClusterById.get(sourceId);
+    const targetCluster = nodeClusterById.get(targetId);
+    const crossesCluster =
+      sourceCluster !== undefined && targetCluster !== undefined && sourceCluster !== targetCluster;
+
+    if (crossesCluster) {
+      return 320;
+    }
+    return link.is_ai_generated ? 84 : 118;
+  };
+
+  const graphLinkStrength = (linkObject: object): number => {
+    const link = linkObject as GraphLink3D & { source: unknown; target: unknown };
+    const sourceId = linkEndpointId(link.source);
+    const targetId = linkEndpointId(link.target);
+    const sourceCluster = nodeClusterById.get(sourceId);
+    const targetCluster = nodeClusterById.get(targetId);
+    const crossesCluster =
+      sourceCluster !== undefined && targetCluster !== undefined && sourceCluster !== targetCluster;
+
+    if (crossesCluster) {
+      return 0.01;
+    }
+    return link.is_ai_generated ? 0.06 : 0.11;
+  };
 
   const fallbackLayout = useMemo(() => {
     const width = 980;
@@ -1385,6 +1476,10 @@ function App() {
                       graphData={graphSceneData}
                       width={graphViewport.width}
                       height={graphViewport.height}
+                      linkDistance={graphLinkDistance}
+                      linkStrength={graphLinkStrength}
+                      d3AlphaDecay={0.04}
+                      d3VelocityDecay={0.36}
                       nodeLabel={(node: object) => {
                         const item = node as GraphNode3D;
                         return `${item.title}\nSource: ${sourceTypeLabel(item.source_type)}\nTags: ${item.tags.join(", ") || "none"}`;
@@ -1406,6 +1501,9 @@ function App() {
                       graphData={graphSceneData}
                       width={graphViewport.width}
                       height={graphViewport.height}
+                      linkDistance={graphLinkDistance}
+                      linkStrength={graphLinkStrength}
+                      d3AlphaDecay={0.04}
                       nodeLabel={(node: object) => {
                         const item = node as GraphNode3D;
                         return `${item.title}\nSource: ${sourceTypeLabel(item.source_type)}\nTags: ${item.tags.join(", ") || "none"}`;
