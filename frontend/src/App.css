@@ -516,10 +516,12 @@ button:disabled {
   display: grid;
   grid-template-columns: 1.8fr 1fr;
   gap: 0.9rem;
+  align-items: start;
 }
 
 .graph-canvas-card {
   gap: 0.65rem;
+  align-self: start;
 }
 
 .graph-stage {
@@ -591,6 +593,9 @@ button:disabled {
 .cluster-bars {
   display: grid;
   gap: 0.58rem;
+  max-height: min(38vh, 310px);
+  overflow-y: auto;
+  padding-right: 0.2rem;
 }
 
 .cluster-bar-row {
