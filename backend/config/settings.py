@@ -29,13 +29,46 @@ def _split_csv_env(name: str, default: str, strip_trailing_slash: bool = False) 
         values.append(cleaned)
     return values
 
+
+def _split_hosts_env(name: str, default: str) -> list[str]:
+    values = []
+    for item in os.getenv(name, default).split(","):
+        host = item.strip()
+        if not host:
+            continue
+        if host.startswith("http://"):
+            host = host[len("http://") :]
+        elif host.startswith("https://"):
+            host = host[len("https://") :]
+        host = host.split("/", 1)[0].strip()
+        if not host:
+            continue
+        # Django ALLOWED_HOSTS expects hostname patterns without ports.
+        if ":" in host and not host.startswith("["):
+            host = host.split(":", 1)[0]
+        values.append(host)
+
+    render_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
+    if render_hostname:
+        values.append(render_hostname)
+
+    # Preserve order while deduplicating.
+    deduped = []
+    seen = set()
+    for host in values:
+        if host in seen:
+            continue
+        seen.add(host)
+        deduped.append(host)
+    return deduped
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "change-me-in-env")
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
-ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+ALLOWED_HOSTS = _split_hosts_env("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
 
 
 # Application definition
