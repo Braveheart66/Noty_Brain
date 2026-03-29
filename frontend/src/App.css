@@ -412,9 +412,22 @@ button:disabled {
 
 .graph-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(190px, 240px) auto;
   gap: 0.65rem;
+}
+
+.graph-toolbar-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 290px);
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.graph-toolbar-bottom {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
 }
 
 .graph-node-picker {
@@ -425,6 +438,19 @@ button:disabled {
 .graph-node-picker span {
   font-size: 0.76rem;
   color: var(--ink-soft);
+}
+
+.graph-node-picker select {
+  min-width: 0;
+}
+
+.graph-edge-tabs {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.graph-edge-tabs button {
+  white-space: nowrap;
 }
 
 .graph-toolbar-right {
@@ -625,9 +651,18 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
-  .graph-grid,
-  .graph-toolbar {
+  .graph-grid {
     grid-template-columns: 1fr;
+  }
+
+  .graph-toolbar-top {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .graph-toolbar-bottom {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .tabbar {
@@ -649,7 +684,12 @@ button:disabled {
   }
 
   .graph-toolbar-right {
+    width: 100%;
     justify-content: stretch;
+  }
+
+  .graph-edge-tabs {
+    width: 100%;
   }
 
   .row.between {

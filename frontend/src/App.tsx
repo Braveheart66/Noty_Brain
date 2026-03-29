@@ -400,36 +400,175 @@ function App() {
     const uniqueClusters = [...new Set(nodesRaw.map((node) => node.clusterIndex).filter((value) => value >= 0))].sort(
       (a, b) => a - b,
     );
-    const clusterOrder = new Map<number, number>();
-    uniqueClusters.forEach((clusterId, index) => clusterOrder.set(clusterId, index));
     const clusterCount = uniqueClusters.length;
-    const interClusterRadius = clusterCount > 1 ? Math.max(190, 130 + clusterCount * 45) : 0;
+    const clusterSizeById = new Map<number, number>();
+    nodesRaw.forEach((node) => {
+      if (node.clusterIndex >= 0) {
+        clusterSizeById.set(node.clusterIndex, (clusterSizeById.get(node.clusterIndex) ?? 0) + 1);
+      }
+    });
+
+    const clusterPairKey = (first: number, second: number): string =>
+      first < second ? `${first}:${second}` : `${second}:${first}`;
+
+    const clusterPairWeights = new Map<string, number>();
+    const clusterConnectivity = new Map<number, number>();
+    finalVisibleEdges.forEach((edge) => {
+      const sourceCluster = clusterIndexByNoteId.get(edge.source_note_id);
+      const targetCluster = clusterIndexByNoteId.get(edge.target_note_id);
+
+      if (
+        sourceCluster === undefined ||
+        targetCluster === undefined ||
+        sourceCluster < 0 ||
+        targetCluster < 0 ||
+        sourceCluster === targetCluster
+      ) {
+        return;
+      }
+
+      const edgeWeight = Math.max(0.12, edge.similarity_score ?? (edge.is_ai_generated ? 0.62 : 0.38));
+      const key = clusterPairKey(sourceCluster, targetCluster);
+      clusterPairWeights.set(key, (clusterPairWeights.get(key) ?? 0) + edgeWeight);
+      clusterConnectivity.set(sourceCluster, (clusterConnectivity.get(sourceCluster) ?? 0) + edgeWeight);
+      clusterConnectivity.set(targetCluster, (clusterConnectivity.get(targetCluster) ?? 0) + edgeWeight);
+    });
+
+    const connectivityValues = uniqueClusters.map((clusterId) => clusterConnectivity.get(clusterId) ?? 0);
+    const pairWeightValues = [...clusterPairWeights.values()];
+    const maxConnectivity = connectivityValues.length > 0 ? Math.max(...connectivityValues, 1) : 1;
+    const maxPairWeight = pairWeightValues.length > 0 ? Math.max(...pairWeightValues, 1) : 1;
+
+    const clusterCenterById = new Map<number, { x: number; y: number; z: number }>();
+    if (clusterCount === 1) {
+      clusterCenterById.set(uniqueClusters[0], { x: 0, y: 0, z: 0 });
+    } else if (clusterCount > 1) {
+      const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+      const baseSpread = 190 + clusterCount * 34;
+      const states = uniqueClusters.map((clusterId, index) => {
+        const seed = hashString(`cluster-${clusterId}`);
+        const connectivity = clusterConnectivity.get(clusterId) ?? 0;
+        const isolation = 1 - Math.min(1, connectivity / maxConnectivity);
+        const radiusScale = 0.76 + (seed % 31) / 100;
+        const radius = baseSpread * radiusScale * (1 + isolation * 0.58);
+        const angle = index * goldenAngle + ((seed % 180) * Math.PI) / 900;
+
+        return {
+          clusterId,
+          isolation,
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius,
+          z: ((seed % 170) - 85) * (0.72 + isolation * 0.3),
+          vx: 0,
+          vy: 0,
+          vz: 0,
+        };
+      });
+
+      const iterations = Math.min(180, 110 + clusterCount * 8);
+      for (let step = 0; step < iterations; step += 1) {
+        states.forEach((state, stateIndex) => {
+          let fx = 0;
+          let fy = 0;
+          let fz = 0;
+
+          states.forEach((other, otherIndex) => {
+            if (stateIndex === otherIndex) {
+              return;
+            }
+
+            const dx = state.x - other.x;
+            const dy = state.y - other.y;
+            const dz = state.z - other.z;
+            const distance = Math.max(22, Math.hypot(dx, dy, dz));
+
+            const repulsion = (8800 * (1 + state.isolation + other.isolation)) / (distance * distance);
+            fx += (dx / distance) * repulsion;
+            fy += (dy / distance) * repulsion;
+            fz += (dz / distance) * repulsion;
+
+            const pairWeight = clusterPairWeights.get(clusterPairKey(state.clusterId, other.clusterId)) ?? 0;
+            if (pairWeight > 0) {
+              const normalizedWeight = pairWeight / maxPairWeight;
+              const targetDistance = 150 + (1 - normalizedWeight) * 160;
+              const springStrength = 0.012 + normalizedWeight * 0.022;
+              const springForce = (distance - targetDistance) * springStrength;
+
+              fx -= (dx / distance) * springForce;
+              fy -= (dy / distance) * springForce;
+              fz -= (dz / distance) * springForce;
+            }
+          });
+
+          const originDistance = Math.max(70, Math.hypot(state.x, state.y, state.z));
+          const radialPush = (0.48 + state.isolation * 0.9) * 1.6;
+          fx += (state.x / originDistance) * radialPush;
+          fy += (state.y / originDistance) * radialPush;
+          fz += (state.z / originDistance) * radialPush * 0.9;
+
+          state.vx = (state.vx + fx) * 0.74;
+          state.vy = (state.vy + fy) * 0.74;
+          state.vz = (state.vz + fz) * 0.74;
+
+          state.x += state.vx;
+          state.y += state.vy;
+          state.z += state.vz;
+        });
+      }
+
+      states.forEach((state) => {
+        const sizeScale = Math.max(1, Math.sqrt(clusterSizeById.get(state.clusterId) ?? 1) * 0.2);
+        clusterCenterById.set(state.clusterId, {
+          x: state.x * sizeScale,
+          y: state.y * sizeScale,
+          z: state.z * sizeScale,
+        });
+      });
+    }
+
+    const clusterNodeOrder = new Map<string, number>();
+    if (clusterCount > 0) {
+      const clusterBuckets = new Map<number, GraphNode3D[]>();
+      nodesRaw.forEach((node) => {
+        if (node.clusterIndex < 0) {
+          return;
+        }
+        const bucket = clusterBuckets.get(node.clusterIndex) ?? [];
+        bucket.push(node);
+        clusterBuckets.set(node.clusterIndex, bucket);
+      });
+
+      clusterBuckets.forEach((clusterNodes) => {
+        const sorted = [...clusterNodes].sort((left, right) => hashString(left.id) - hashString(right.id));
+        sorted.forEach((node, index) => {
+          clusterNodeOrder.set(node.id, index);
+        });
+      });
+    }
 
     const nodes: GraphNode3D[] = nodesRaw.map((node) => {
-      if (node.clusterIndex < 0 || clusterCount <= 1) {
+      if (node.clusterIndex < 0 || clusterCount === 0) {
         return node;
       }
 
-      const order = clusterOrder.get(node.clusterIndex) ?? 0;
-      const centerAngle = (Math.PI * 2 * order) / clusterCount;
-      const centerX = Math.cos(centerAngle) * interClusterRadius;
-      const centerY = Math.sin(centerAngle) * interClusterRadius;
-      const centerZ = clusterCount > 2 ? (order % 2 === 0 ? 1 : -1) * interClusterRadius * 0.22 : 0;
-
+      const center = clusterCenterById.get(node.clusterIndex) ?? { x: 0, y: 0, z: 0 };
       const nodeHash = hashString(node.id);
-      const theta = ((nodeHash % 360) * Math.PI) / 180;
-      const phi = ((((nodeHash >> 3) % 160) + 10) * Math.PI) / 180;
-      const localRadius = 24 + (nodeHash % 34);
+      const clusterSeed = hashString(`cluster-seed-${node.clusterIndex}`);
+      const localRank = clusterNodeOrder.get(node.id) ?? 0;
+      const spiralAngle = localRank * 2.399963229728653 + ((clusterSeed % 360) * Math.PI) / 180;
+      const radialBand = 18 + Math.sqrt(localRank + 1) * 13 + (nodeHash % 11);
+      const squash = 0.68 + ((clusterSeed >> 3) % 22) / 100;
+      const jitter = ((nodeHash % 17) - 8) * 1.35;
 
-      const localX = Math.sin(phi) * Math.cos(theta) * localRadius;
-      const localY = Math.sin(phi) * Math.sin(theta) * localRadius;
-      const localZ = Math.cos(phi) * localRadius;
+      const localX = Math.cos(spiralAngle) * radialBand;
+      const localY = Math.sin(spiralAngle) * radialBand * squash;
+      const localZ = ((localRank % 6) - 2.5) * 11 + Math.sin(spiralAngle * 0.63) * 9 + jitter;
 
       return {
         ...node,
-        x: centerX + localX,
-        y: centerY + localY,
-        z: centerZ + localZ,
+        x: center.x + localX,
+        y: center.y + localY,
+        z: center.z + localZ,
       };
     });
 
@@ -485,7 +624,13 @@ function App() {
       sourceCluster !== undefined && targetCluster !== undefined && sourceCluster !== targetCluster;
 
     if (crossesCluster) {
-      return 320;
+      const similarity =
+        typeof link.similarity_score === "number"
+          ? Math.max(0, Math.min(1, link.similarity_score))
+          : link.is_ai_generated
+            ? 0.55
+            : 0.35;
+      return 360 - similarity * 125;
     }
     return link.is_ai_generated ? 84 : 118;
   };
@@ -500,7 +645,13 @@ function App() {
       sourceCluster !== undefined && targetCluster !== undefined && sourceCluster !== targetCluster;
 
     if (crossesCluster) {
-      return 0.01;
+      const similarity =
+        typeof link.similarity_score === "number"
+          ? Math.max(0, Math.min(1, link.similarity_score))
+          : link.is_ai_generated
+            ? 0.55
+            : 0.35;
+      return 0.007 + similarity * 0.03;
     }
     return link.is_ai_generated ? 0.06 : 0.11;
   };
@@ -1451,29 +1602,32 @@ function App() {
         </div>
 
         <div className="graph-toolbar">
-          <input
-            placeholder="Filter nodes by title, tag, or source"
-            value={nodeSearch}
-            onChange={(event) => setNodeSearch(event.target.value)}
-            disabled={!isAuthenticated}
-          />
-          <label className="graph-node-picker">
-            <span>Pick node</span>
-            <select
-              value={focusNodeId}
-              onChange={(event) => setFocusNodeId(event.target.value)}
-              disabled={!isAuthenticated || graphNodeOptions.length === 0}
-            >
-              <option value="">All nodes</option>
-              {graphNodeOptions.map((node) => (
-                <option key={node.id} value={node.id}>
-                  {node.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="graph-toolbar-right">
-            <div className="segmented" role="tablist" aria-label="Edge filter">
+          <div className="graph-toolbar-top">
+            <input
+              placeholder="Filter nodes by title, tag, or source"
+              value={nodeSearch}
+              onChange={(event) => setNodeSearch(event.target.value)}
+              disabled={!isAuthenticated}
+            />
+            <label className="graph-node-picker">
+              <span>Pick node</span>
+              <select
+                value={focusNodeId}
+                onChange={(event) => setFocusNodeId(event.target.value)}
+                disabled={!isAuthenticated || graphNodeOptions.length === 0}
+              >
+                <option value="">All nodes</option>
+                {graphNodeOptions.map((node) => (
+                  <option key={node.id} value={node.id}>
+                    {node.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="graph-toolbar-bottom">
+            <div className="segmented graph-edge-tabs" role="tablist" aria-label="Edge filter">
               <button
                 type="button"
                 className={edgeView === "all" ? "active" : ""}
@@ -1497,35 +1651,37 @@ function App() {
               </button>
             </div>
 
-            <div className="segmented" role="tablist" aria-label="Graph render mode">
+            <div className="graph-toolbar-right">
+              <div className="segmented" role="tablist" aria-label="Graph render mode">
+                <button
+                  type="button"
+                  className={effectiveGraphMode === "3d" ? "active" : ""}
+                  onClick={() => handleToggleGraphMode("3d")}
+                  disabled={!has3DRenderer}
+                  title={has3DRenderer ? "Switch to 3D graph" : "3D renderer unavailable"}
+                >
+                  3D
+                </button>
+                <button
+                  type="button"
+                  className={effectiveGraphMode === "2d" ? "active" : ""}
+                  onClick={() => handleToggleGraphMode("2d")}
+                  disabled={!has2DRenderer}
+                  title={has2DRenderer ? "Switch to 2D graph" : "2D renderer loading"}
+                >
+                  2D
+                </button>
+              </div>
               <button
                 type="button"
-                className={effectiveGraphMode === "3d" ? "active" : ""}
-                onClick={() => handleToggleGraphMode("3d")}
-                disabled={!has3DRenderer}
-                title={has3DRenderer ? "Switch to 3D graph" : "3D renderer unavailable"}
+                className="button-neutral"
+                onClick={handleCenterGraph}
+                disabled={graphSceneData.nodes.length === 0}
+                title="Center graph in the canvas"
               >
-                3D
-              </button>
-              <button
-                type="button"
-                className={effectiveGraphMode === "2d" ? "active" : ""}
-                onClick={() => handleToggleGraphMode("2d")}
-                disabled={!has2DRenderer}
-                title={has2DRenderer ? "Switch to 2D graph" : "2D renderer loading"}
-              >
-                2D
+                Center Graph
               </button>
             </div>
-            <button
-              type="button"
-              className="button-neutral"
-              onClick={handleCenterGraph}
-              disabled={graphSceneData.nodes.length === 0}
-              title="Center graph in the canvas"
-            >
-              Center Graph
-            </button>
           </div>
         </div>
         <p className="muted graph-toggle-help">
