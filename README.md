@@ -71,26 +71,12 @@ d:/Noty_Brain/.venv/Scripts/python.exe manage.py migrate
 d:/Noty_Brain/.venv/Scripts/python.exe manage.py runserver
 ```
 
-If your `.env` is Docker-oriented (`DB_HOST=postgres`), use the helper script instead:
-
-```powershell
-Set-Location d:/Noty_Brain
-.\run-local-backend.ps1
-```
-
 ### 4. Run frontend locally without Docker (optional)
 
 ```powershell
 Set-Location frontend
 npm install
 npm run dev
-```
-
-Or use:
-
-```powershell
-Set-Location d:/Noty_Brain
-.\run-local-frontend.ps1
 ```
 
 ### 5. Optional free local LLM for `/api/ask/` (Ollama)
