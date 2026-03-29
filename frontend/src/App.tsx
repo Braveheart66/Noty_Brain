@@ -444,13 +444,13 @@ function App() {
       clusterCenterById.set(uniqueClusters[0], { x: 0, y: 0, z: 0 });
     } else if (clusterCount > 1) {
       const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-      const baseSpread = 190 + clusterCount * 34;
+      const baseSpread = 230 + clusterCount * 44;
       const states = uniqueClusters.map((clusterId, index) => {
         const seed = hashString(`cluster-${clusterId}`);
         const connectivity = clusterConnectivity.get(clusterId) ?? 0;
         const isolation = 1 - Math.min(1, connectivity / maxConnectivity);
-        const radiusScale = 0.76 + (seed % 31) / 100;
-        const radius = baseSpread * radiusScale * (1 + isolation * 0.58);
+        const radiusScale = 0.84 + (seed % 41) / 100;
+        const radius = baseSpread * radiusScale * (1 + isolation * 0.92);
         const angle = index * goldenAngle + ((seed % 180) * Math.PI) / 900;
 
         return {
@@ -465,7 +465,7 @@ function App() {
         };
       });
 
-      const iterations = Math.min(180, 110 + clusterCount * 8);
+      const iterations = Math.min(240, 140 + clusterCount * 10);
       for (let step = 0; step < iterations; step += 1) {
         states.forEach((state, stateIndex) => {
           let fx = 0;
@@ -482,7 +482,7 @@ function App() {
             const dz = state.z - other.z;
             const distance = Math.max(22, Math.hypot(dx, dy, dz));
 
-            const repulsion = (8800 * (1 + state.isolation + other.isolation)) / (distance * distance);
+            const repulsion = (11200 * (1 + state.isolation + other.isolation)) / (distance * distance);
             fx += (dx / distance) * repulsion;
             fy += (dy / distance) * repulsion;
             fz += (dz / distance) * repulsion;
@@ -490,8 +490,8 @@ function App() {
             const pairWeight = clusterPairWeights.get(clusterPairKey(state.clusterId, other.clusterId)) ?? 0;
             if (pairWeight > 0) {
               const normalizedWeight = pairWeight / maxPairWeight;
-              const targetDistance = 150 + (1 - normalizedWeight) * 160;
-              const springStrength = 0.012 + normalizedWeight * 0.022;
+              const targetDistance = 190 + (1 - normalizedWeight) * 260;
+              const springStrength = 0.01 + normalizedWeight * 0.028;
               const springForce = (distance - targetDistance) * springStrength;
 
               fx -= (dx / distance) * springForce;
@@ -501,14 +501,14 @@ function App() {
           });
 
           const originDistance = Math.max(70, Math.hypot(state.x, state.y, state.z));
-          const radialPush = (0.48 + state.isolation * 0.9) * 1.6;
+          const radialPush = 0.95 + state.isolation * 1.45;
           fx += (state.x / originDistance) * radialPush;
           fy += (state.y / originDistance) * radialPush;
           fz += (state.z / originDistance) * radialPush * 0.9;
 
-          state.vx = (state.vx + fx) * 0.74;
-          state.vy = (state.vy + fy) * 0.74;
-          state.vz = (state.vz + fz) * 0.74;
+          state.vx = (state.vx + fx) * 0.72;
+          state.vy = (state.vy + fy) * 0.72;
+          state.vz = (state.vz + fz) * 0.72;
 
           state.x += state.vx;
           state.y += state.vy;
@@ -518,10 +518,11 @@ function App() {
 
       states.forEach((state) => {
         const sizeScale = Math.max(1, Math.sqrt(clusterSizeById.get(state.clusterId) ?? 1) * 0.2);
+        const separationScale = 1 + state.isolation * 0.55;
         clusterCenterById.set(state.clusterId, {
-          x: state.x * sizeScale,
-          y: state.y * sizeScale,
-          z: state.z * sizeScale,
+          x: state.x * sizeScale * separationScale,
+          y: state.y * sizeScale * separationScale,
+          z: state.z * sizeScale * separationScale,
         });
       });
     }
@@ -630,7 +631,7 @@ function App() {
           : link.is_ai_generated
             ? 0.55
             : 0.35;
-      return 360 - similarity * 125;
+      return 430 - similarity * 170;
     }
     return link.is_ai_generated ? 84 : 118;
   };
@@ -651,7 +652,7 @@ function App() {
           : link.is_ai_generated
             ? 0.55
             : 0.35;
-      return 0.007 + similarity * 0.03;
+      return 0.004 + similarity * 0.022;
     }
     return link.is_ai_generated ? 0.06 : 0.11;
   };
@@ -676,13 +677,18 @@ function App() {
     const clusterCount = clustersOrdered.length;
     const centerX = width / 2;
     const centerY = height / 2;
-    const outerRadius = clusterCount > 1 ? Math.min(width, height) * 0.3 : 0;
+    const outerRadius = clusterCount > 1 ? Math.min(width, height) * 0.36 : 0;
     const positionedNodes = new Map<string, FallbackNode>();
 
-    clustersOrdered.forEach(([, clusterNodes], clusterIndex) => {
-      const angle = clusterCount === 1 ? 0 : (Math.PI * 2 * clusterIndex) / clusterCount;
-      const clusterCenterX = centerX + Math.cos(angle) * outerRadius;
-      const clusterCenterY = centerY + Math.sin(angle) * outerRadius;
+    clustersOrdered.forEach(([clusterId, clusterNodes], clusterIndex) => {
+      const clusterSeed = hashString(`fallback-cluster-${clusterId}`);
+      const angle =
+        clusterCount === 1
+          ? 0
+          : (Math.PI * 2 * clusterIndex) / clusterCount + ((clusterSeed % 65) * Math.PI) / 300;
+      const radiusScale = 0.82 + (clusterSeed % 37) / 100;
+      const clusterCenterX = centerX + Math.cos(angle) * outerRadius * radiusScale;
+      const clusterCenterY = centerY + Math.sin(angle) * outerRadius * radiusScale;
       const innerRadius = clusterNodes.length > 1 ? Math.max(36, Math.min(120, 20 + clusterNodes.length * 7)) : 0;
 
       clusterNodes.forEach((node, nodeIndex) => {
