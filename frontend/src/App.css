@@ -412,9 +412,19 @@ button:disabled {
 
 .graph-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 240px) auto;
   gap: 0.65rem;
   align-items: center;
+}
+
+.graph-node-picker {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.graph-node-picker span {
+  font-size: 0.76rem;
+  color: var(--ink-soft);
 }
 
 .graph-toolbar-right {

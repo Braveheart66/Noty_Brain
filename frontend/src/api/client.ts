@@ -136,6 +136,13 @@ export function login(payload: { email: string; password: string }) {
   });
 }
 
+export function refreshAccessToken(payload: { refresh: string }) {
+  return request<{ access: string }>("/auth/token/refresh/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function fetchNotes(accessToken: string) {
   return request<Note[]>("/notes/", {
     headers: {

@@ -9,6 +9,7 @@ import {
   fetchGraph,
   fetchNotes,
   fetchProfile,
+  refreshAccessToken,
   ingestPdf,
   ingestText,
   ingestUrl,
@@ -127,6 +128,7 @@ function App() {
   const [displayName, setDisplayName] = useState("");
   const [authMode, setAuthMode] = useState<AuthMode>("register");
   const [token, setToken] = useState("");
+  const [refreshToken, setRefreshToken] = useState("");
 
   const [status, setStatus] = useState("Ready");
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -167,12 +169,38 @@ function App() {
   const [forceGraph3D, setForceGraph3D] = useState<GraphRenderer | null>(null);
   const [graphLibError, setGraphLibError] = useState<string | null>(null);
   const [nodeSearch, setNodeSearch] = useState("");
+  const [focusNodeId, setFocusNodeId] = useState("");
   const [activeCluster, setActiveCluster] = useState<number | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const graphRef = useRef<any>(undefined);
   const graphStageRef = useRef<HTMLDivElement | null>(null);
   const [graphViewport, setGraphViewport] = useState({ width: 960, height: 560 });
+
+  useEffect(() => {
+    const storedAccessToken = window.localStorage.getItem("noty_access_token");
+    const storedRefreshToken = window.localStorage.getItem("noty_refresh_token");
+    if (storedAccessToken) {
+      setToken(storedAccessToken);
+    }
+    if (storedRefreshToken) {
+      setRefreshToken(storedRefreshToken);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (token) {
+      window.localStorage.setItem("noty_access_token", token);
+    } else {
+      window.localStorage.removeItem("noty_access_token");
+    }
+
+    if (refreshToken) {
+      window.localStorage.setItem("noty_refresh_token", refreshToken);
+    } else {
+      window.localStorage.removeItem("noty_refresh_token");
+    }
+  }, [refreshToken, token]);
 
   useEffect(() => {
     let disposed = false;
@@ -245,6 +273,46 @@ function App() {
 
   const isAuthenticated = useMemo(() => token.length > 0, [token]);
 
+  const isTokenInvalidError = (error: unknown): boolean => {
+    const message = error instanceof Error ? error.message : "";
+    if (!message) {
+      return false;
+    }
+
+    if (message.includes("token_not_valid") || message.includes("Given token not valid")) {
+      return true;
+    }
+
+    try {
+      const parsed = JSON.parse(message) as { code?: string; detail?: string };
+      return parsed.code === "token_not_valid" || (parsed.detail ?? "").includes("not valid");
+    } catch {
+      return false;
+    }
+  };
+
+  const runWithAccessToken = async <T,>(operation: (accessToken: string) => Promise<T>): Promise<T> => {
+    try {
+      return await operation(token);
+    } catch (error) {
+      if (!isTokenInvalidError(error) || !refreshToken) {
+        throw error;
+      }
+
+      try {
+        const refreshed = await refreshAccessToken({ refresh: refreshToken });
+        setToken(refreshed.access);
+        setStatus("Session refreshed. Retrying request...");
+        return operation(refreshed.access);
+      } catch (refreshError) {
+        setToken("");
+        setRefreshToken("");
+        setStatus("Session expired. Please sign in again.");
+        throw refreshError;
+      }
+    }
+  };
+
   const clusterIndexByNoteId = useMemo(() => {
     const noteToCluster = new Map<string, number>();
     if (!clusters) {
@@ -278,7 +346,7 @@ function App() {
 
     const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
 
-    const visibleEdges = currentGraph.edges.filter((edge) => {
+    const visibleEdgesAll = currentGraph.edges.filter((edge) => {
       if (!visibleNodeIds.has(edge.source_note_id) || !visibleNodeIds.has(edge.target_note_id)) {
         return false;
       }
@@ -292,14 +360,33 @@ function App() {
       return true;
     });
 
+    let finalVisibleNodes = visibleNodes;
+    let finalVisibleEdges = visibleEdgesAll;
+    if (focusNodeId && visibleNodeIds.has(focusNodeId)) {
+      const neighborIds = new Set<string>([focusNodeId]);
+      visibleEdgesAll.forEach((edge) => {
+        if (edge.source_note_id === focusNodeId) {
+          neighborIds.add(edge.target_note_id);
+        }
+        if (edge.target_note_id === focusNodeId) {
+          neighborIds.add(edge.source_note_id);
+        }
+      });
+
+      finalVisibleNodes = visibleNodes.filter((node) => neighborIds.has(node.id));
+      finalVisibleEdges = visibleEdgesAll.filter(
+        (edge) => neighborIds.has(edge.source_note_id) && neighborIds.has(edge.target_note_id),
+      );
+    }
+
     const degreeByNode = new Map<string, number>();
-    visibleNodes.forEach((node) => degreeByNode.set(node.id, 0));
-    visibleEdges.forEach((edge) => {
+    finalVisibleNodes.forEach((node) => degreeByNode.set(node.id, 0));
+    finalVisibleEdges.forEach((edge) => {
       degreeByNode.set(edge.source_note_id, (degreeByNode.get(edge.source_note_id) ?? 0) + 1);
       degreeByNode.set(edge.target_note_id, (degreeByNode.get(edge.target_note_id) ?? 0) + 1);
     });
 
-    const nodesRaw: GraphNode3D[] = visibleNodes.map((node) => {
+    const nodesRaw: GraphNode3D[] = finalVisibleNodes.map((node) => {
       const clusterIndex = clusterIndexByNoteId.get(node.id) ?? -1;
       const degree = degreeByNode.get(node.id) ?? 0;
       return {
@@ -346,7 +433,7 @@ function App() {
       };
     });
 
-    const links: GraphLink3D[] = visibleEdges.map((edge) => ({
+    const links: GraphLink3D[] = finalVisibleEdges.map((edge) => ({
       id: edge.id,
       source: edge.source_note_id,
       target: edge.target_note_id,
@@ -356,7 +443,7 @@ function App() {
     }));
 
     return { nodes, links };
-  }, [activeCluster, clusterIndexByNoteId, edgeView, graph, nodeSearch]);
+  }, [activeCluster, clusterIndexByNoteId, edgeView, focusNodeId, graph, nodeSearch]);
 
   const selectedNode = useMemo(() => {
     if (!selectedNodeId) {
@@ -364,6 +451,23 @@ function App() {
     }
     return graphSceneData.nodes.find((node) => node.id === selectedNodeId) ?? null;
   }, [graphSceneData.nodes, selectedNodeId]);
+
+  const graphNodeOptions = useMemo(() => {
+    const source = graph?.nodes ?? [];
+    return [...source]
+      .sort((left, right) => left.title.localeCompare(right.title))
+      .map((node) => ({ id: node.id, title: node.title }));
+  }, [graph]);
+
+  useEffect(() => {
+    if (!focusNodeId) {
+      return;
+    }
+    const stillExists = (graph?.nodes ?? []).some((node) => node.id === focusNodeId);
+    if (!stillExists) {
+      setFocusNodeId("");
+    }
+  }, [focusNodeId, graph]);
 
   const nodeClusterById = useMemo(() => {
     const mapping = new Map<string, number>();
@@ -509,6 +613,7 @@ function App() {
     try {
       const data = await login({ email, password });
       setToken(data.access);
+      setRefreshToken(data.refresh);
       await loadWorkspace(data.access);
       setStatus("Signed in and loaded workspace.");
     } catch (error) {
@@ -522,7 +627,7 @@ function App() {
     }
 
     try {
-      await loadWorkspace(token);
+      await runWithAccessToken((activeToken) => loadWorkspace(activeToken));
       setStatus("Workspace refreshed.");
     } catch (error) {
       setStatus(`Refresh failed: ${(error as Error).message}`);
@@ -531,6 +636,7 @@ function App() {
 
   const handleSignOut = () => {
     setToken("");
+    setRefreshToken("");
     setProfile(null);
     setAskResult(null);
     setSearchAnswer(null);
@@ -553,7 +659,9 @@ function App() {
     }
 
     try {
-      const created = await createNote(token, { title: noteTitle, content: noteBody });
+      const created = await runWithAccessToken((activeToken) =>
+        createNote(activeToken, { title: noteTitle, content: noteBody }),
+      );
       setNotes((current) => [created, ...current]);
       setNoteTitle("");
       setNoteBody("");
@@ -571,7 +679,9 @@ function App() {
     }
 
     try {
-      const created = await ingestUrl(token, { url: urlToIngest, title: urlTitle || undefined });
+      const created = await runWithAccessToken((activeToken) =>
+        ingestUrl(activeToken, { url: urlToIngest, title: urlTitle || undefined }),
+      );
       setNotes((current) => [created, ...current]);
       setUrlToIngest("");
       setUrlTitle("");
@@ -589,10 +699,12 @@ function App() {
     }
 
     try {
-      const created = await ingestText(token, {
-        content: textToIngest,
-        title: textTitle || undefined,
-      });
+      const created = await runWithAccessToken((activeToken) =>
+        ingestText(activeToken, {
+          content: textToIngest,
+          title: textTitle || undefined,
+        }),
+      );
       setNotes((current) => [created, ...current]);
       setTextToIngest("");
       setTextTitle("");
@@ -614,7 +726,9 @@ function App() {
     }
 
     try {
-      const created = await ingestPdf(token, pdfFile, pdfTitle || undefined);
+      const created = await runWithAccessToken((activeToken) =>
+        ingestPdf(activeToken, pdfFile, pdfTitle || undefined),
+      );
       setNotes((current) => [created, ...current]);
       setPdfFile(null);
       setPdfTitle("");
@@ -632,11 +746,13 @@ function App() {
     }
 
     try {
-      const response = await semanticSearch(token, {
-        query: searchQuery,
-        include_answer: true,
-        response_length: searchResponseLength,
-      });
+      const response = await runWithAccessToken((activeToken) =>
+        semanticSearch(activeToken, {
+          query: searchQuery,
+          include_answer: true,
+          response_length: searchResponseLength,
+        }),
+      );
       setSearchResults(response.results);
       setSearchAnswer(response.answer ?? null);
       setSearchConfidence(typeof response.confidence === "number" ? response.confidence : null);
@@ -655,9 +771,13 @@ function App() {
     }
 
     try {
-      const response = await askQuestion(token, { question });
+      const response = await runWithAccessToken((activeToken) =>
+        askQuestion(activeToken, { question }),
+      );
       setAskResult(response);
-      const updatedHistory = await fetchAskHistory(token);
+      const updatedHistory = await runWithAccessToken((activeToken) =>
+        fetchAskHistory(activeToken),
+      );
       setHistory(updatedHistory);
       setStatus("Q&A response generated.");
     } catch (error) {
@@ -672,10 +792,9 @@ function App() {
     }
 
     try {
-      const [loadedDashboard, loadedGraph] = await Promise.all([
-        fetchDashboard(token),
-        fetchGraph(token),
-      ]);
+      const [loadedDashboard, loadedGraph] = await runWithAccessToken((activeToken) =>
+        Promise.all([fetchDashboard(activeToken), fetchGraph(activeToken)]),
+      );
       setDashboard(loadedDashboard);
       setGraph(loadedGraph);
       setStatus("Insights loaded.");
@@ -691,7 +810,7 @@ function App() {
     }
 
     try {
-      const response = await runClusterAnalysis(token);
+      const response = await runWithAccessToken((activeToken) => runClusterAnalysis(activeToken));
       setClusters(response);
       setActiveCluster(null);
       setStatus(`Cluster analysis found ${response.clusters.length} clusters.`);
@@ -705,10 +824,9 @@ function App() {
       return;
     }
     try {
-      const [loadedDashboard, loadedGraph] = await Promise.all([
-        fetchDashboard(token),
-        fetchGraph(token),
-      ]);
+      const [loadedDashboard, loadedGraph] = await runWithAccessToken((activeToken) =>
+        Promise.all([fetchDashboard(activeToken), fetchGraph(activeToken)]),
+      );
       setDashboard(loadedDashboard);
       setGraph(loadedGraph);
     } catch {
@@ -743,10 +861,12 @@ function App() {
 
     try {
       setNoteActionPendingId(noteId);
-      const updated = await updateNote(token, noteId, {
-        title: nextTitle,
-        content: nextContent,
-      });
+      const updated = await runWithAccessToken((activeToken) =>
+        updateNote(activeToken, noteId, {
+          title: nextTitle,
+          content: nextContent,
+        }),
+      );
       setNotes((current) => current.map((note) => (note.id === noteId ? updated : note)));
       setClusters(null);
       cancelEditingNote();
@@ -772,7 +892,7 @@ function App() {
 
     try {
       setNoteActionPendingId(noteId);
-      await deleteNote(token, noteId);
+      await runWithAccessToken((activeToken) => deleteNote(activeToken, noteId));
       setNotes((current) => current.filter((note) => note.id !== noteId));
       setClusters(null);
       if (editingNoteId === noteId) {
@@ -1337,6 +1457,21 @@ function App() {
             onChange={(event) => setNodeSearch(event.target.value)}
             disabled={!isAuthenticated}
           />
+          <label className="graph-node-picker">
+            <span>Pick node</span>
+            <select
+              value={focusNodeId}
+              onChange={(event) => setFocusNodeId(event.target.value)}
+              disabled={!isAuthenticated || graphNodeOptions.length === 0}
+            >
+              <option value="">All nodes</option>
+              {graphNodeOptions.map((node) => (
+                <option key={node.id} value={node.id}>
+                  {node.title}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="graph-toolbar-right">
             <div className="segmented" role="tablist" aria-label="Edge filter">
               <button
