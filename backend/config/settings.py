@@ -16,6 +16,19 @@ def _get_int_env(name: str, default: int) -> int:
     except ValueError:
         return default
 
+
+def _split_csv_env(name: str, default: str, strip_trailing_slash: bool = False) -> list[str]:
+    raw = os.getenv(name, default)
+    values = []
+    for item in raw.split(","):
+        cleaned = item.strip()
+        if not cleaned:
+            continue
+        if strip_trailing_slash:
+            cleaned = cleaned.rstrip("/")
+        values.append(cleaned)
+    return values
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -154,12 +167,13 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
-CORS_ALLOWED_ORIGINS = os.getenv(
-    "CORS_ALLOWED_ORIGINS", "http://localhost:5173"
-).split(",")
-CSRF_TRUSTED_ORIGINS = os.getenv(
-    "CSRF_TRUSTED_ORIGINS", "http://localhost:5173"
-).split(",")
+CORS_ALLOWED_ORIGINS = _split_csv_env(
+    "CORS_ALLOWED_ORIGINS", "http://localhost:5173", strip_trailing_slash=True
+)
+CORS_ALLOWED_ORIGIN_REGEXES = _split_csv_env("CORS_ALLOWED_ORIGIN_REGEXES", "")
+CSRF_TRUSTED_ORIGINS = _split_csv_env(
+    "CSRF_TRUSTED_ORIGINS", "http://localhost:5173", strip_trailing_slash=True
+)
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
