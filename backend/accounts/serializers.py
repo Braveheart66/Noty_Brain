@@ -16,7 +16,13 @@ class RegisterSerializer(serializers.ModelSerializer):
         email = validated_data["email"]
         password = validated_data.pop("password")
         display_name = validated_data.get("display_name", "")
-        username = email.split("@")[0]
+        base_username = email.split("@", 1)[0].strip().lower() or "user"
+        username = base_username[:150]
+        suffix = 1
+        while User.objects.filter(username=username).exists():
+            suffix_text = f"_{suffix}"
+            username = f"{base_username[: 150 - len(suffix_text)]}{suffix_text}"
+            suffix += 1
 
         user = User(
             username=username,

@@ -102,20 +102,6 @@ function truncateText(text: string, maxLength = 150): string {
   return `${text.slice(0, maxLength - 3)}...`;
 }
 
-function browserSupportsWebGL(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  try {
-    const canvas = document.createElement("canvas");
-    const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-    return Boolean(gl);
-  } catch {
-    return false;
-  }
-}
-
 function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -157,9 +143,7 @@ function App() {
   const [clusters, setClusters] = useState<ClusterPayload | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>("capture");
   const [edgeView, setEdgeView] = useState<EdgeViewMode>("all");
-  const [graphMode, setGraphMode] = useState<GraphRenderMode>(
-    browserSupportsWebGL() ? "3d" : "2d",
-  );
+  const [graphMode, setGraphMode] = useState<GraphRenderMode>("2d");
   const [forceGraph2D, setForceGraph2D] = useState<GraphRenderer | null>(null);
   const [forceGraph3D, setForceGraph3D] = useState<GraphRenderer | null>(null);
   const [graphLibError, setGraphLibError] = useState<string | null>(null);
