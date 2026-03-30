@@ -11,6 +11,8 @@ type IntelligencePanelProps = {
 };
 
 export function IntelligencePanel({ activeNote, backlinks, graph, onOpenNote }: IntelligencePanelProps) {
+  const visibleBacklinks = useMemo(() => backlinks.slice(0, 40), [backlinks]);
+
   const miniGraphData = useMemo(() => {
     if (!activeNote || !graph) {
       return { nodes: [], links: [] };
@@ -77,12 +79,21 @@ export function IntelligencePanel({ activeNote, backlinks, graph, onOpenNote }: 
       <div className="intelligence-card">
         <h4>Backlinks</h4>
         {backlinks.length === 0 && <p className="muted">No backlinks yet.</p>}
-        {backlinks.map((item) => (
-          <button key={item.link_id} type="button" className="backlink-row" onClick={() => onOpenNote(item.note_id)}>
-            <span>{item.icon_emoji || "📝"}</span>
-            <span>{item.title}</span>
-          </button>
-        ))}
+        {backlinks.length > 0 && (
+          <div className="backlinks-scroll-wrap">
+            <div className="backlinks-scroll" role="list" aria-label="Backlinks">
+              {visibleBacklinks.map((item) => (
+                <button key={item.link_id} type="button" className="backlink-row" onClick={() => onOpenNote(item.note_id)}>
+                  <span>{item.icon_emoji || "📝"}</span>
+                  <span>{item.title}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {backlinks.length > visibleBacklinks.length && (
+          <small className="muted">Showing {visibleBacklinks.length} of {backlinks.length} backlinks.</small>
+        )}
       </div>
 
       <div className="intelligence-card mini-graph-card">
@@ -93,7 +104,7 @@ export function IntelligencePanel({ activeNote, backlinks, graph, onOpenNote }: 
           <ForceGraph2D
             graphData={miniGraphData}
             width={240}
-            height={220}
+            height={180}
             nodeLabel={(node: object) => (node as { title?: string }).title ?? "note"}
             nodeColor={(node: object) => ((node as { id: string }).id === activeNote.id ? "#1f7a63" : "#7aa59a")}
             linkColor={() => "#7fa599"}

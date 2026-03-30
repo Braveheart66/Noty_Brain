@@ -34,6 +34,7 @@ import type {
 import { BlockEditor } from "./components/editor/BlockEditor";
 import { EMPTY_DOC, jsonToPlainText, plainTextToDoc, sanitizeEditorJson } from "./components/editor/richText";
 import { CommandPalette } from "./components/workspace/CommandPalette";
+import { HomeGraphHero } from "./components/workspace/HomeGraphHero";
 import { IntelligencePanel } from "./components/workspace/IntelligencePanel";
 import { TemplatePickerModal } from "./components/workspace/TemplatePickerModal";
 import { WorkspaceSidebar } from "./components/workspace/WorkspaceSidebar";
@@ -52,9 +53,20 @@ const CLUSTER_PALETTE = [
 
 type EdgeViewMode = "all" | "ai" | "manual";
 type GraphRenderMode = "3d" | "2d";
-type WorkspacePage = "capture" | "explore" | "graph";
+type WorkspacePage = "home" | "capture" | "explore" | "graph";
 type AuthMode = "register" | "login";
 type GraphRenderer = ComponentType<any>;
+
+type LoginFormState = {
+  email: string;
+  password: string;
+};
+
+type RegisterFormState = {
+  displayName: string;
+  email: string;
+  password: string;
+};
 
 type GraphNode3D = {
   id: string;
@@ -131,6 +143,9 @@ function linkEndpointId(endpoint: unknown): string {
 }
 
 function resolveWorkspacePage(path: string): WorkspacePage {
+  if (path.startsWith("/home")) {
+    return "home";
+  }
   if (path.startsWith("/explore")) {
     return "explore";
   }
@@ -141,12 +156,13 @@ function resolveWorkspacePage(path: string): WorkspacePage {
 }
 
 function App() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [loginForm, setLoginForm] = useState<LoginFormState>({ email: "", password: "" });
+  const [registerForm, setRegisterForm] = useState<RegisterFormState>({ displayName: "", email: "", password: "" });
   const [authMode, setAuthMode] = useState<AuthMode>("register");
   const [token, setToken] = useState("");
   const [refreshToken, setRefreshToken] = useState("");
+  const [authBootstrapping, setAuthBootstrapping] = useState(true);
+  const [sessionHydrated, setSessionHydrated] = useState(false);
 
   const [status, setStatus] = useState("Ready");
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -178,8 +194,8 @@ function App() {
   const [searchResponseLength, setSearchResponseLength] = useState<"short" | "medium" | "long">("medium");
   const [browseQuery, setBrowseQuery] = useState("");
   const [browseSource, setBrowseSource] = useState<"all" | "manual" | "url" | "pdf">("all");
-  const [browseStartDate, setBrowseStartDate] = useState("");
-  const [browseEndDate, setBrowseEndDate] = useState("");
+  const [browseFromDate, setBrowseFromDate] = useState("");
+  const [browseToDate, setBrowseToDate] = useState("");
   const [browseSort, setBrowseSort] = useState<"updated_desc" | "updated_asc" | "title_asc" | "source">("updated_desc");
 
   const [dashboard, setDashboard] = useState<DashboardStats | null>(null);
@@ -205,10 +221,12 @@ function App() {
     const storedRefreshToken = window.localStorage.getItem("noty_refresh_token");
     if (storedAccessToken) {
       setToken(storedAccessToken);
+      if (storedRefreshToken) {
+        setRefreshToken(storedRefreshToken);
+      }
+      return;
     }
-    if (storedRefreshToken) {
-      setRefreshToken(storedRefreshToken);
-    }
+    setAuthBootstrapping(false);
   }, []);
 
   useEffect(() => {
@@ -315,14 +333,18 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (authBootstrapping) {
+      return;
+    }
+
     if (!isAuthenticated && routePath !== "/login") {
       navigateTo("/login");
       return;
     }
     if (isAuthenticated && routePath === "/login") {
-      navigateTo("/capture");
+      navigateTo("/home");
     }
-  }, [isAuthenticated, routePath]);
+  }, [authBootstrapping, isAuthenticated, routePath]);
 
   const isTokenInvalidError = (error: unknown): boolean => {
     const message = error instanceof Error ? error.message : "";
@@ -356,8 +378,13 @@ function App() {
         setStatus("Session refreshed. Retrying request...");
         return operation(refreshed.access);
       } catch (refreshError) {
+        window.localStorage.removeItem("noty_access_token");
+        window.localStorage.removeItem("noty_refresh_token");
         setToken("");
         setRefreshToken("");
+        setAuthBootstrapping(false);
+        setSessionHydrated(false);
+        navigateTo("/login");
         setStatus("Session expired. Please sign in again.");
         throw refreshError;
       }
@@ -797,15 +824,15 @@ function App() {
         return false;
       }
 
-      if (browseStartDate) {
-        const start = new Date(`${browseStartDate}T00:00:00`).getTime();
+      if (browseFromDate) {
+        const start = new Date(`${browseFromDate}T00:00:00`).getTime();
         if (new Date(note.updated_at).getTime() < start) {
           return false;
         }
       }
 
-      if (browseEndDate) {
-        const end = new Date(`${browseEndDate}T23:59:59`).getTime();
+      if (browseToDate) {
+        const end = new Date(`${browseToDate}T23:59:59`).getTime();
         if (new Date(note.updated_at).getTime() > end) {
           return false;
         }
@@ -834,7 +861,7 @@ function App() {
     });
 
     return sorted;
-  }, [browseEndDate, browseQuery, browseSort, browseSource, browseStartDate, notes]);
+  }, [browseFromDate, browseQuery, browseSort, browseSource, browseToDate, notes]);
 
   const loadWorkspace = async (accessToken: string) => {
     const [loadedNotes, loadedDashboard, loadedGraph, loadedProfile, loadedTemplates] = await Promise.all([
@@ -852,6 +879,86 @@ function App() {
     setTemplates(loadedTemplates);
   };
 
+  useEffect(() => {
+    if (!token) {
+      setAuthBootstrapping(false);
+      setSessionHydrated(false);
+      return;
+    }
+
+    if (sessionHydrated) {
+      setAuthBootstrapping(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const validateSessionAndLoad = async () => {
+      try {
+        await fetchProfile(token);
+        await loadWorkspace(token);
+        if (!cancelled) {
+          setSessionHydrated(true);
+          setStatus("Session restored.");
+          if (routePath === "/login") {
+            navigateTo("/home");
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          window.localStorage.removeItem("noty_access_token");
+          window.localStorage.removeItem("noty_refresh_token");
+          setToken("");
+          setRefreshToken("");
+          setProfile(null);
+          setStatus("Session expired. Please sign in again.");
+          navigateTo("/login");
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthBootstrapping(false);
+        }
+      }
+    };
+
+    void validateSessionAndLoad();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionHydrated, token]);
+
+  useEffect(() => {
+    if (workspacePage !== "capture") {
+      setShowTemplatePicker(false);
+      setShowCommandPalette(false);
+      setTemplateNameDraft("");
+      setBacklinks([]);
+      setActiveNoteId(null);
+      setEditorDirty(false);
+    }
+
+    if (workspacePage !== "explore") {
+      setSearchQuery("");
+      setSearchResults([]);
+      setSearchAnswer(null);
+      setSearchConfidence(null);
+      setSearchSources([]);
+      setBrowseQuery("");
+      setBrowseSource("all");
+      setBrowseFromDate("");
+      setBrowseToDate("");
+      setBrowseSort("updated_desc");
+    }
+
+    if (workspacePage !== "graph") {
+      setSelectedNodeId(null);
+      setNodeSearch("");
+      setFocusNodeId("");
+      setActiveCluster(null);
+    }
+  }, [workspacePage]);
+
   const activeNote = useMemo(() => {
     if (!activeNoteId) {
       return null;
@@ -860,6 +967,10 @@ function App() {
   }, [activeNoteId, notes]);
 
   useEffect(() => {
+    if (workspacePage !== "capture") {
+      return;
+    }
+
     if (notes.length === 0) {
       setActiveNoteId(null);
       setBacklinks([]);
@@ -869,7 +980,7 @@ function App() {
     if (!activeNoteId || !notes.some((note) => note.id === activeNoteId)) {
       setActiveNoteId(notes[0].id);
     }
-  }, [activeNoteId, notes]);
+  }, [activeNoteId, notes, workspacePage]);
 
   useEffect(() => {
     if (!activeNote) {
@@ -913,8 +1024,14 @@ function App() {
   const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     try {
-      await register({ email, password, display_name: displayName });
+      await register({
+        email: registerForm.email,
+        password: registerForm.password,
+        display_name: registerForm.displayName,
+      });
+      setRegisterForm((current) => ({ ...current, password: "" }));
       setStatus("Registration successful. You can sign in now.");
+      setAuthMode("login");
     } catch (error) {
       setStatus(`Registration failed: ${(error as Error).message}`);
     }
@@ -923,12 +1040,12 @@ function App() {
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     try {
-      const data = await login({ email, password });
+      const data = await login({ email: loginForm.email, password: loginForm.password });
+      setSessionHydrated(false);
+      setAuthBootstrapping(true);
       setToken(data.access);
       setRefreshToken(data.refresh);
-      await loadWorkspace(data.access);
-      setStatus("Signed in and loaded workspace.");
-      navigateTo("/capture");
+      setStatus("Signed in. Restoring your workspace...");
     } catch (error) {
       setStatus(`Login failed: ${(error as Error).message}`);
     }
@@ -948,8 +1065,12 @@ function App() {
   };
 
   const handleSignOut = () => {
+    window.localStorage.removeItem("noty_access_token");
+    window.localStorage.removeItem("noty_refresh_token");
     setToken("");
     setRefreshToken("");
+    setAuthBootstrapping(false);
+    setSessionHydrated(false);
     setProfile(null);
     setSearchAnswer(null);
     setSearchResults([]);
@@ -961,6 +1082,8 @@ function App() {
     setBacklinks([]);
     setTemplates([]);
     setAuthMode("login");
+    setLoginForm({ email: "", password: "" });
+    setRegisterForm({ displayName: "", email: "", password: "" });
     setStatus("Signed out.");
     navigateTo("/login");
   };
@@ -1400,10 +1523,12 @@ function App() {
       }
 
       graphApi.d3ReheatSimulation?.();
-      graphApi.zoomToFit?.(780, 60);
+      graphApi.zoomToFit?.(400, 80);
 
       if (effectiveGraphMode === "3d") {
-        graphApi.cameraPosition?.({ x: 0, y: 0, z: 260 });
+        graphApi.cameraPosition?.({ x: 0, y: 0, z: 300 });
+        const renderer = graphApi.renderer?.();
+        renderer?.setPixelRatio?.(window.devicePixelRatio || 1);
       }
     }, 220);
 
@@ -1431,31 +1556,38 @@ function App() {
     }
 
     graphApi.d3ReheatSimulation?.();
-    graphApi.zoomToFit?.(780, 60);
+    graphApi.zoomToFit?.(400, 80);
     if (effectiveGraphMode === "3d") {
-      graphApi.cameraPosition?.({ x: 0, y: 0, z: 260 });
+      graphApi.cameraPosition?.({ x: 0, y: 0, z: 300 });
+      const renderer = graphApi.renderer?.();
+      renderer?.setPixelRatio?.(window.devicePixelRatio || 1);
     }
     setStatus("Graph recentered in view.");
   };
 
+  if (authBootstrapping) {
+    return (
+      <div className="shell login-shell loading-shell">
+        <div className="card loading-card">
+          <h2>Restoring session...</h2>
+          <p className="muted">Verifying your account and loading workspace data.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <div className="shell login-shell">
-        <header className="hero login-hero">
-          <p className="eyebrow">AI-Powered Second Brain</p>
-          <h1>Noty Brain</h1>
-          <p className="subtitle">
-            Sign in once to unlock Capture, Explore, and Graph Lab pages with your personal knowledge workspace.
-          </p>
-        </header>
+        <div className="login-bg-grid" aria-hidden="true" />
 
-        <section className="grid two login-grid">
-          <article className="card login-copy">
-            <h2>Design Your Thinking Surface</h2>
-            <p>
-              Organize notes, retrieve grounded AI answers, and inspect ideas visually in a graph built from your own data.
+        <section className="login-stage">
+          <article className="login-intro">
+            <p className="eyebrow">AI-Powered Second Brain</p>
+            <h1>Noty Brain</h1>
+            <p className="subtitle">
+              Capture ideas, ask grounded AI questions, and explore your knowledge graph in one premium workspace.
             </p>
-            <p className="muted">Your account stays available in a compact top-right panel after sign in.</p>
           </article>
 
           <article className="card auth-panel login-panel">
@@ -1481,26 +1613,50 @@ function App() {
 
             {authMode === "register" ? (
               <form onSubmit={handleRegister}>
-                <input
-                  placeholder="Display name"
-                  value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
-                />
-                <input
-                  type="email"
-                  placeholder="Email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  required
-                />
-                <input
-                  type="password"
-                  placeholder="Password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                />
-                <button type="submit">Register</button>
+                <label className="floating-field">
+                  <input
+                    placeholder=" "
+                    value={registerForm.displayName}
+                    onChange={(event) =>
+                      setRegisterForm((current) => ({
+                        ...current,
+                        displayName: event.target.value,
+                      }))
+                    }
+                  />
+                  <span>Display name</span>
+                </label>
+                <label className="floating-field">
+                  <input
+                    type="email"
+                    placeholder=" "
+                    value={registerForm.email}
+                    onChange={(event) =>
+                      setRegisterForm((current) => ({
+                        ...current,
+                        email: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                  <span>Email</span>
+                </label>
+                <label className="floating-field">
+                  <input
+                    type="password"
+                    placeholder=" "
+                    value={registerForm.password}
+                    onChange={(event) =>
+                      setRegisterForm((current) => ({
+                        ...current,
+                        password: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                  <span>Password</span>
+                </label>
+                <button type="submit">Create Account</button>
                 <p className="auth-switch-line">
                   Already have an account?{" "}
                   <button type="button" className="text-link" onClick={() => setAuthMode("login")}>
@@ -1510,20 +1666,36 @@ function App() {
               </form>
             ) : (
               <form onSubmit={handleLogin}>
-                <input
-                  type="email"
-                  placeholder="Email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  required
-                />
-                <input
-                  type="password"
-                  placeholder="Password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  required
-                />
+                <label className="floating-field">
+                  <input
+                    type="email"
+                    placeholder=" "
+                    value={loginForm.email}
+                    onChange={(event) =>
+                      setLoginForm((current) => ({
+                        ...current,
+                        email: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                  <span>Email</span>
+                </label>
+                <label className="floating-field">
+                  <input
+                    type="password"
+                    placeholder=" "
+                    value={loginForm.password}
+                    onChange={(event) =>
+                      setLoginForm((current) => ({
+                        ...current,
+                        password: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                  <span>Password</span>
+                </label>
                 <button type="submit">Sign In</button>
                 <p className="auth-switch-line">
                   New here?{" "}
@@ -1541,18 +1713,48 @@ function App() {
     );
   }
 
+  const pageHeader =
+    workspacePage === "capture"
+      ? {
+          title: "Capture your thoughts and build knowledge",
+          subtitle: "Compose rich notes, connect ideas with backlinks, and convert drafts into reusable templates.",
+        }
+      : workspacePage === "explore"
+        ? {
+            title: "Ask questions and explore your knowledge base",
+            subtitle: "Use semantic retrieval, answer synthesis, and filtered browsing to navigate your notes quickly.",
+          }
+        : workspacePage === "graph"
+          ? {
+              title: "Visualize connections and discover insights",
+              subtitle: "Inspect node neighborhoods, cluster structure, and graph-level trends in interactive space.",
+            }
+          : {
+              title: "Your AI-powered workspace",
+              subtitle: "Jump into Capture, Explore, or Graph from a single launch surface designed for focused thinking.",
+            };
+
+  const accountFallbackEmail = profile?.email || loginForm.email || registerForm.email || "";
+
   return (
     <div className="shell workspace-shell">
       <header className="hero workspace-hero premium-hero">
         <p className="eyebrow">AI-Powered Second Brain</p>
         <h1>Noty Brain</h1>
-        <p className="subtitle">
-          A multi-page workspace for note capture, model-grounded semantic exploration, and graph analytics.
-        </p>
+        <h2 className="workspace-page-title">{pageHeader.title}</h2>
+        <p className="subtitle">{pageHeader.subtitle}</p>
       </header>
 
       <section className="workspace-top">
         <nav className="tabbar route-tabbar" aria-label="Workspace sections">
+          <button
+            type="button"
+            className={workspacePage === "home" ? "tab-button active" : "tab-button"}
+            onClick={() => navigateTo("/home")}
+          >
+            <span>Home</span>
+            <small>Launch and quick actions</small>
+          </button>
           <button
             type="button"
             className={workspacePage === "capture" ? "tab-button active" : "tab-button"}
@@ -1580,8 +1782,8 @@ function App() {
         </nav>
 
         <aside className="card mini-account">
-          <p className="mini-account-name">{profile?.display_name || profile?.username || email.split("@")[0] || "User"}</p>
-          <p className="mini-account-email">{profile?.email || email}</p>
+          <p className="mini-account-name">{profile?.display_name || profile?.username || accountFallbackEmail.split("@")[0] || "User"}</p>
+          <p className="mini-account-email">{accountFallbackEmail || "Signed in"}</p>
           <div className="mini-account-actions">
             <button type="button" className="button-neutral" onClick={handleRefreshWorkspace}>
               Refresh
@@ -1593,22 +1795,53 @@ function App() {
         </aside>
       </section>
 
-      <div className="workspace-body">
-        <WorkspaceSidebar
-          notes={notes}
-          activeNoteId={activeNoteId}
-          onSelectNote={(noteId) => {
-            setActiveNoteId(noteId);
-            navigateTo("/capture");
-          }}
-          onCreateNote={() => setShowTemplatePicker(true)}
-          onRenameNote={handleRenameNote}
-          onDeleteNote={handleDeleteNote}
-          onDuplicateNote={handleDuplicateNote}
-          onUpdateEmoji={handleUpdateEmoji}
-        />
+      <div className={`workspace-body workspace-body-${workspacePage}`}>
+        {workspacePage !== "home" && (
+          <WorkspaceSidebar
+            notes={notes}
+            activeNoteId={activeNoteId}
+            onSelectNote={(noteId) => {
+              setActiveNoteId(noteId);
+              navigateTo("/capture");
+            }}
+            onCreateNote={() => setShowTemplatePicker(true)}
+            onRenameNote={handleRenameNote}
+            onDeleteNote={handleDeleteNote}
+            onDuplicateNote={handleDuplicateNote}
+            onUpdateEmoji={handleUpdateEmoji}
+          />
+        )}
 
         <main className="workspace-content">
+          {workspacePage === "home" && (
+            <div className="page-stack home-stack">
+              <section className="card home-hero-card">
+                <div className="home-hero-copy">
+                  <h2>Welcome back to Noty Brain</h2>
+                  <p className="muted">
+                    Capture ideas, retrieve context-aware answers, and inspect your knowledge graph with high signal and low friction.
+                  </p>
+                </div>
+                <HomeGraphHero />
+              </section>
+
+              <section className="home-grid-cards">
+                <button type="button" className="card home-nav-card" onClick={() => navigateTo("/capture")}>
+                  <h3>Capture</h3>
+                  <p>Write notes, add backlinks, and save templates.</p>
+                </button>
+                <button type="button" className="card home-nav-card" onClick={() => navigateTo("/explore")}>
+                  <h3>Explore</h3>
+                  <p>Ask semantic questions and browse your knowledge base.</p>
+                </button>
+                <button type="button" className="card home-nav-card" onClick={() => navigateTo("/graph")}>
+                  <h3>Graph</h3>
+                  <p>Visualize relationships and discover connected clusters.</p>
+                </button>
+              </section>
+            </div>
+          )}
+
           {workspacePage === "capture" && (
             <div className="page-stack capture-stack">
               <section className="card capture-editor-card">
@@ -1794,8 +2027,16 @@ function App() {
                       <option value="url">URL</option>
                       <option value="pdf">PDF</option>
                     </select>
-                    <input type="date" value={browseStartDate} onChange={(event) => setBrowseStartDate(event.target.value)} />
-                    <input type="date" value={browseEndDate} onChange={(event) => setBrowseEndDate(event.target.value)} />
+                    <div className="date-range-inline">
+                      <label>
+                        <span>From</span>
+                        <input type="date" value={browseFromDate} onChange={(event) => setBrowseFromDate(event.target.value)} />
+                      </label>
+                      <label>
+                        <span>To</span>
+                        <input type="date" value={browseToDate} onChange={(event) => setBrowseToDate(event.target.value)} />
+                      </label>
+                    </div>
                     <select
                       value={browseSort}
                       onChange={(event) =>
@@ -2148,15 +2389,17 @@ function App() {
 
         </main>
 
-        <IntelligencePanel
-          activeNote={activeNote}
-          backlinks={backlinks}
-          graph={graph}
-          onOpenNote={(noteId) => {
-            setActiveNoteId(noteId);
-            navigateTo("/capture");
-          }}
-        />
+        {workspacePage === "capture" && (
+          <IntelligencePanel
+            activeNote={activeNote}
+            backlinks={backlinks}
+            graph={graph}
+            onOpenNote={(noteId) => {
+              setActiveNoteId(noteId);
+              navigateTo("/capture");
+            }}
+          />
+        )}
       </div>
 
       <TemplatePickerModal
