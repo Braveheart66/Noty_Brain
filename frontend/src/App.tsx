@@ -214,7 +214,7 @@ function App() {
 
   const graphRef = useRef<any>(undefined);
   const graphStageRef = useRef<HTMLDivElement | null>(null);
-  const [graphViewport, setGraphViewport] = useState({ width: 960, height: 560 });
+  const [graphViewport, setGraphViewport] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     const storedAccessToken = window.localStorage.getItem("noty_access_token");
@@ -289,8 +289,11 @@ function App() {
 
     const updateViewport = () => {
       const rect = stage.getBoundingClientRect();
-      const width = Math.max(320, Math.floor(rect.width));
-      const height = Math.max(320, Math.floor(rect.height));
+      const width = Math.floor(rect.width);
+      const height = Math.floor(rect.height);
+      if (width <= 0 || height <= 0) {
+        return;
+      }
       setGraphViewport((current) => {
         if (current.width === width && current.height === height) {
           return current;
@@ -1512,7 +1515,7 @@ function App() {
   }, [graphMode, has2DRenderer, has3DRenderer]);
 
   useEffect(() => {
-    if (graphSceneData.nodes.length === 0) {
+    if (graphViewport.width === 0 || graphViewport.height === 0 || graphSceneData.nodes.length === 0) {
       return;
     }
 
@@ -1523,17 +1526,28 @@ function App() {
       }
 
       graphApi.d3ReheatSimulation?.();
-      graphApi.zoomToFit?.(400, 80);
+      graphApi.zoomToFit?.(800, 80);
 
       if (effectiveGraphMode === "3d") {
-        graphApi.cameraPosition?.({ x: 0, y: 0, z: 300 });
-        const renderer = graphApi.renderer?.();
-        renderer?.setPixelRatio?.(window.devicePixelRatio || 1);
+        graphApi.cameraPosition?.(
+          { x: 0, y: 0, z: 300 },
+          { x: 0, y: 0, z: 0 },
+          800,
+        );
       }
-    }, 220);
+    }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [effectiveGraphMode, graphSceneData.nodes.length, graphSceneData.links.length, graphViewport.width, graphViewport.height]);
+  }, [effectiveGraphMode, graphSceneData, graphViewport]);
+
+  useEffect(() => {
+    if (graphViewport.width === 0 || graphViewport.height === 0) {
+      return;
+    }
+
+    const renderer = graphRef.current?.renderer?.();
+    renderer?.setPixelRatio?.(window.devicePixelRatio || 1);
+  }, [effectiveGraphMode, graphViewport.height, graphViewport.width]);
 
   const handleToggleGraphMode = (mode: GraphRenderMode) => {
     if (mode === "3d" && !has3DRenderer) {
@@ -1556,11 +1570,13 @@ function App() {
     }
 
     graphApi.d3ReheatSimulation?.();
-    graphApi.zoomToFit?.(400, 80);
+    graphApi.zoomToFit?.(800, 80);
     if (effectiveGraphMode === "3d") {
-      graphApi.cameraPosition?.({ x: 0, y: 0, z: 300 });
-      const renderer = graphApi.renderer?.();
-      renderer?.setPixelRatio?.(window.devicePixelRatio || 1);
+      graphApi.cameraPosition?.(
+        { x: 0, y: 0, z: 300 },
+        { x: 0, y: 0, z: 0 },
+        800,
+      );
     }
     setStatus("Graph recentered in view.");
   };
@@ -2234,11 +2250,13 @@ function App() {
               Rotate and zoom to inspect note neighborhoods. Click a node to focus camera and inspect
               linked details.
             </p>
-            <div className="graph-stage" ref={graphStageRef}>
+            <div className="graph-container" ref={graphStageRef}>
               {graphSceneData.nodes.length === 0 ? (
                 <p className="muted graph-empty">
                   No graph nodes to render. Load insights, create notes, and run cluster analysis first.
                 </p>
+              ) : graphViewport.width === 0 || graphViewport.height === 0 ? (
+                <p className="muted graph-empty">Preparing graph viewport...</p>
               ) : (
                 <>
                   {graphLibError ? (

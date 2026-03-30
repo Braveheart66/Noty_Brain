@@ -1067,18 +1067,20 @@ button:disabled {
   align-self: start;
 }
 
-.graph-stage {
+.graph-container {
+  width: 100%;
+  height: 420px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   position: relative;
-  height: min(62vh, 560px);
-  min-height: 360px;
   border: 1px solid #bfd5c8;
   border-radius: 14px;
   overflow: hidden;
-  transform: none;
   background: radial-gradient(circle at 30% 20%, #f8fffb 0%, #e3f0e8 55%, #dae8e1 100%);
 }
 
-.graph-stage canvas {
+.graph-container canvas {
   display: block;
   image-rendering: auto;
 }
