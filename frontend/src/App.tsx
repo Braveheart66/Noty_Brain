@@ -282,6 +282,17 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const isGraphRoute = resolveWorkspacePage(routePath) === "graph";
+    if (!isGraphRoute) {
+      setGraphViewport((current) => {
+        if (current.width === 0 && current.height === 0) {
+          return current;
+        }
+        return { width: 0, height: 0 };
+      });
+      return;
+    }
+
     const stage = graphStageRef.current;
     if (!stage) {
       return;
@@ -313,7 +324,7 @@ function App() {
     observer.observe(stage);
 
     return () => observer.disconnect();
-  }, []);
+  }, [routePath]);
 
   const isAuthenticated = useMemo(() => token.length > 0, [token]);
 
