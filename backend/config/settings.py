@@ -210,9 +210,9 @@ CSRF_TRUSTED_ORIGINS = _split_csv_env(
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "none")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b-instruct")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 OLLAMA_TIMEOUT_SECONDS = _get_int_env("OLLAMA_TIMEOUT_SECONDS", 120)
 
 CELERY_BROKER_URL = REDIS_URL

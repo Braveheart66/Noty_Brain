@@ -1,17 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType, FormEvent } from "react";
 import {
-  askQuestion,
   createNote,
   deleteNote,
-  fetchAskHistory,
   fetchDashboard,
   fetchGraph,
   fetchNotes,
   fetchProfile,
   refreshAccessToken,
   ingestPdf,
-  ingestText,
   ingestUrl,
   login,
   register,
@@ -20,13 +17,11 @@ import {
   updateNote,
 } from "./api/client";
 import type {
-  AskResponse,
   ClusterPayload,
   DashboardStats,
   GraphPayload,
   Note,
   Profile,
-  QueryHistoryEntry,
   SearchResult,
 } from "./api/client";
 import "./App.css";
@@ -44,7 +39,7 @@ const CLUSTER_PALETTE = [
 
 type EdgeViewMode = "all" | "ai" | "manual";
 type GraphRenderMode = "3d" | "2d";
-type AppTab = "capture" | "explore" | "graph";
+type WorkspacePage = "capture" | "explore" | "graph";
 type AuthMode = "register" | "login";
 type GraphRenderer = ComponentType<any>;
 
@@ -122,6 +117,16 @@ function linkEndpointId(endpoint: unknown): string {
   return "";
 }
 
+function resolveWorkspacePage(path: string): WorkspacePage {
+  if (path.startsWith("/explore")) {
+    return "explore";
+  }
+  if (path.startsWith("/graph")) {
+    return "graph";
+  }
+  return "capture";
+}
+
 function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -143,8 +148,6 @@ function App() {
 
   const [urlToIngest, setUrlToIngest] = useState("");
   const [urlTitle, setUrlTitle] = useState("");
-  const [textToIngest, setTextToIngest] = useState("");
-  const [textTitle, setTextTitle] = useState("");
   const [pdfTitle, setPdfTitle] = useState("");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
 
@@ -154,15 +157,15 @@ function App() {
   const [searchConfidence, setSearchConfidence] = useState<number | null>(null);
   const [searchSources, setSearchSources] = useState<Array<{ id: string; title: string; similarity_score: number }>>([]);
   const [searchResponseLength, setSearchResponseLength] = useState<"short" | "medium" | "long">("medium");
-
-  const [question, setQuestion] = useState("");
-  const [askResult, setAskResult] = useState<AskResponse | null>(null);
-  const [history, setHistory] = useState<QueryHistoryEntry[]>([]);
+  const [browseQuery, setBrowseQuery] = useState("");
+  const [browseSource, setBrowseSource] = useState<"all" | "manual" | "url" | "pdf">("all");
+  const [browseStartDate, setBrowseStartDate] = useState("");
+  const [browseEndDate, setBrowseEndDate] = useState("");
+  const [browseSort, setBrowseSort] = useState<"updated_desc" | "updated_asc" | "title_asc" | "source">("updated_desc");
 
   const [dashboard, setDashboard] = useState<DashboardStats | null>(null);
   const [graph, setGraph] = useState<GraphPayload | null>(null);
   const [clusters, setClusters] = useState<ClusterPayload | null>(null);
-  const [activeTab, setActiveTab] = useState<AppTab>("capture");
   const [edgeView, setEdgeView] = useState<EdgeViewMode>("all");
   const [graphMode, setGraphMode] = useState<GraphRenderMode>("2d");
   const [forceGraph2D, setForceGraph2D] = useState<GraphRenderer | null>(null);
@@ -172,6 +175,7 @@ function App() {
   const [focusNodeId, setFocusNodeId] = useState("");
   const [activeCluster, setActiveCluster] = useState<number | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [routePath, setRoutePath] = useState(() => window.location.pathname || "/login");
 
   const graphRef = useRef<any>(undefined);
   const graphStageRef = useRef<HTMLDivElement | null>(null);
@@ -272,6 +276,34 @@ function App() {
   }, []);
 
   const isAuthenticated = useMemo(() => token.length > 0, [token]);
+
+  const workspacePage = useMemo(() => resolveWorkspacePage(routePath), [routePath]);
+
+  const navigateTo = (nextPath: string) => {
+    if (routePath === nextPath) {
+      return;
+    }
+    window.history.pushState({}, "", nextPath);
+    setRoutePath(nextPath);
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setRoutePath(window.location.pathname || "/login");
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated && routePath !== "/login") {
+      navigateTo("/login");
+      return;
+    }
+    if (isAuthenticated && routePath === "/login") {
+      navigateTo("/capture");
+    }
+  }, [isAuthenticated, routePath]);
 
   const isTokenInvalidError = (error: unknown): boolean => {
     const message = error instanceof Error ? error.message : "";
@@ -739,17 +771,61 @@ function App() {
     return Math.max(...clusters.clusters.map((cluster) => cluster.size));
   }, [clusters]);
 
+  const filteredBrowseNotes = useMemo(() => {
+    const query = browseQuery.trim().toLowerCase();
+    const withFilters = notes.filter((note) => {
+      if (browseSource !== "all" && note.source_type !== browseSource) {
+        return false;
+      }
+
+      if (browseStartDate) {
+        const start = new Date(`${browseStartDate}T00:00:00`).getTime();
+        if (new Date(note.updated_at).getTime() < start) {
+          return false;
+        }
+      }
+
+      if (browseEndDate) {
+        const end = new Date(`${browseEndDate}T23:59:59`).getTime();
+        if (new Date(note.updated_at).getTime() > end) {
+          return false;
+        }
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      const haystack = `${note.title} ${note.content} ${note.source_type}`.toLowerCase();
+      return haystack.includes(query);
+    });
+
+    const sorted = [...withFilters];
+    sorted.sort((left, right) => {
+      if (browseSort === "updated_asc") {
+        return new Date(left.updated_at).getTime() - new Date(right.updated_at).getTime();
+      }
+      if (browseSort === "title_asc") {
+        return left.title.localeCompare(right.title);
+      }
+      if (browseSort === "source") {
+        return left.source_type.localeCompare(right.source_type) || right.updated_at.localeCompare(left.updated_at);
+      }
+      return new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime();
+    });
+
+    return sorted;
+  }, [browseEndDate, browseQuery, browseSort, browseSource, browseStartDate, notes]);
+
   const loadWorkspace = async (accessToken: string) => {
-    const [loadedNotes, loadedHistory, loadedDashboard, loadedGraph, loadedProfile] = await Promise.all([
+    const [loadedNotes, loadedDashboard, loadedGraph, loadedProfile] = await Promise.all([
       fetchNotes(accessToken),
-      fetchAskHistory(accessToken),
       fetchDashboard(accessToken),
       fetchGraph(accessToken),
       fetchProfile(accessToken),
     ]);
 
     setNotes(loadedNotes);
-    setHistory(loadedHistory);
     setDashboard(loadedDashboard);
     setGraph(loadedGraph);
     setProfile(loadedProfile);
@@ -773,6 +849,7 @@ function App() {
       setRefreshToken(data.refresh);
       await loadWorkspace(data.access);
       setStatus("Signed in and loaded workspace.");
+      navigateTo("/capture");
     } catch (error) {
       setStatus(`Login failed: ${(error as Error).message}`);
     }
@@ -795,17 +872,16 @@ function App() {
     setToken("");
     setRefreshToken("");
     setProfile(null);
-    setAskResult(null);
     setSearchAnswer(null);
     setSearchResults([]);
     setSearchSources([]);
-    setHistory([]);
     setDashboard(null);
     setGraph(null);
     setClusters(null);
     setNotes([]);
     setAuthMode("login");
     setStatus("Signed out.");
+    navigateTo("/login");
   };
 
   const handleCreateNote = async (event: FormEvent<HTMLFormElement>) => {
@@ -845,29 +921,6 @@ function App() {
       setStatus("URL imported as a note.");
     } catch (error) {
       setStatus(`URL import failed: ${(error as Error).message}`);
-    }
-  };
-
-  const handleIngestText = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!isAuthenticated) {
-      setStatus("Sign in first to import text.");
-      return;
-    }
-
-    try {
-      const created = await runWithAccessToken((activeToken) =>
-        ingestText(activeToken, {
-          content: textToIngest,
-          title: textTitle || undefined,
-        }),
-      );
-      setNotes((current) => [created, ...current]);
-      setTextToIngest("");
-      setTextTitle("");
-      setStatus("Text imported as a note.");
-    } catch (error) {
-      setStatus(`Text import failed: ${(error as Error).message}`);
     }
   };
 
@@ -917,28 +970,6 @@ function App() {
       setStatus(`Search returned ${response.results.length} results.`);
     } catch (error) {
       setStatus(`Search failed: ${(error as Error).message}`);
-    }
-  };
-
-  const handleAsk = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!isAuthenticated) {
-      setStatus("Sign in first to ask questions.");
-      return;
-    }
-
-    try {
-      const response = await runWithAccessToken((activeToken) =>
-        askQuestion(activeToken, { question }),
-      );
-      setAskResult(response);
-      const updatedHistory = await runWithAccessToken((activeToken) =>
-        fetchAskHistory(activeToken),
-      );
-      setHistory(updatedHistory);
-      setStatus("Q&A response generated.");
-    } catch (error) {
-      setStatus(`Ask failed: ${(error as Error).message}`);
     }
   };
 
@@ -1154,69 +1185,77 @@ function App() {
     setStatus("Graph recentered in view.");
   };
 
-  return (
-    <div className="shell">
-      <header className="hero">
-        <p className="eyebrow">AI-Powered Second Brain</p>
-        <h1>Noty Brain</h1>
-        <p className="subtitle">
-          End-to-end workspace with auth, notes, ingestion, semantic search, grounded Q&A, graph, and analytics.
-        </p>
-      </header>
+  if (!isAuthenticated) {
+    return (
+      <div className="shell login-shell">
+        <header className="hero login-hero">
+          <p className="eyebrow">AI-Powered Second Brain</p>
+          <h1>Noty Brain</h1>
+          <p className="subtitle">
+            Sign in once to unlock Capture, Explore, and Graph Lab pages with your personal knowledge workspace.
+          </p>
+        </header>
 
-      {!isAuthenticated ? (
-        <section className="card auth-panel">
-          <div className="auth-header">
-            <h2>{authMode === "register" ? "Create Account" : "Sign In"}</h2>
-            <div className="segmented auth-segment" role="tablist" aria-label="Authentication mode">
-              <button
-                type="button"
-                className={authMode === "register" ? "active" : ""}
-                onClick={() => setAuthMode("register")}
-              >
-                Create
-              </button>
-              <button
-                type="button"
-                className={authMode === "login" ? "active" : ""}
-                onClick={() => setAuthMode("login")}
-              >
-                Sign In
-              </button>
-            </div>
-          </div>
+        <section className="grid two login-grid">
+          <article className="card login-copy">
+            <h2>Design Your Thinking Surface</h2>
+            <p>
+              Organize notes, retrieve grounded AI answers, and inspect ideas visually in a graph built from your own data.
+            </p>
+            <p className="muted">Your account stays available in a compact top-right panel after sign in.</p>
+          </article>
 
-          {authMode === "register" ? (
-            <form onSubmit={handleRegister}>
-              <input
-                placeholder="Display name"
-                value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
-              />
-              <input
-                type="email"
-                placeholder="Email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                required
-              />
-              <input
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-              />
-              <button type="submit">Register</button>
-              <p className="auth-switch-line">
-                Already have an account?{" "}
-                <button type="button" className="text-link" onClick={() => setAuthMode("login")}>
-                  Sign in instead
+          <article className="card auth-panel login-panel">
+            <div className="auth-header">
+              <h2>{authMode === "register" ? "Create Account" : "Sign In"}</h2>
+              <div className="segmented auth-segment" role="tablist" aria-label="Authentication mode">
+                <button
+                  type="button"
+                  className={authMode === "register" ? "active" : ""}
+                  onClick={() => setAuthMode("register")}
+                >
+                  Create
                 </button>
-              </p>
-            </form>
-          ) : (
-            <>
+                <button
+                  type="button"
+                  className={authMode === "login" ? "active" : ""}
+                  onClick={() => setAuthMode("login")}
+                >
+                  Sign In
+                </button>
+              </div>
+            </div>
+
+            {authMode === "register" ? (
+              <form onSubmit={handleRegister}>
+                <input
+                  placeholder="Display name"
+                  value={displayName}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                />
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  required
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                />
+                <button type="submit">Register</button>
+                <p className="auth-switch-line">
+                  Already have an account?{" "}
+                  <button type="button" className="text-link" onClick={() => setAuthMode("login")}>
+                    Sign in instead
+                  </button>
+                </p>
+              </form>
+            ) : (
               <form onSubmit={handleLogin}>
                 <input
                   type="email"
@@ -1232,7 +1271,7 @@ function App() {
                   onChange={(event) => setPassword(event.target.value)}
                   required
                 />
-                <button type="submit">Get Access Token</button>
+                <button type="submit">Sign In</button>
                 <p className="auth-switch-line">
                   New here?{" "}
                   <button type="button" className="text-link" onClick={() => setAuthMode("register")}>
@@ -1240,81 +1279,71 @@ function App() {
                   </button>
                 </p>
               </form>
-            </>
-          )}
+            )}
+          </article>
         </section>
-      ) : (
-        <section className="card profile-panel">
-          <div className="profile-topbar">
-            <div className="segmented" role="tablist" aria-label="Signed in panel">
-              <button type="button" className="active">
-                Profile
-              </button>
-            </div>
-            <div className="profile-actions">
-              <button type="button" className="button-neutral" onClick={handleRefreshWorkspace}>
-                Refresh Workspace
-              </button>
-              <button type="button" className="button-danger" onClick={handleSignOut}>
-                Sign Out
-              </button>
-            </div>
+
+        <footer className="status">Status: {status}</footer>
+      </div>
+    );
+  }
+
+  return (
+    <div className="shell workspace-shell">
+      <header className="hero workspace-hero premium-hero">
+        <p className="eyebrow">AI-Powered Second Brain</p>
+        <h1>Noty Brain</h1>
+        <p className="subtitle">
+          A multi-page workspace for note capture, model-grounded semantic exploration, and graph analytics.
+        </p>
+      </header>
+
+      <section className="workspace-top">
+        <nav className="tabbar route-tabbar" aria-label="Workspace sections">
+          <button
+            type="button"
+            className={workspacePage === "capture" ? "tab-button active" : "tab-button"}
+            onClick={() => navigateTo("/capture")}
+          >
+            <span>Capture</span>
+            <small>Write and ingest notes</small>
+          </button>
+          <button
+            type="button"
+            className={workspacePage === "explore" ? "tab-button active" : "tab-button"}
+            onClick={() => navigateTo("/explore")}
+          >
+            <span>Explore</span>
+            <small>Semantic answers and note browser</small>
+          </button>
+          <button
+            type="button"
+            className={workspacePage === "graph" ? "tab-button active" : "tab-button"}
+            onClick={() => navigateTo("/graph")}
+          >
+            <span>Graph Lab</span>
+            <small>Nodes, links, and clusters</small>
+          </button>
+        </nav>
+
+        <aside className="card mini-account">
+          <p className="mini-account-name">{profile?.display_name || profile?.username || email.split("@")[0] || "User"}</p>
+          <p className="mini-account-email">{profile?.email || email}</p>
+          <div className="mini-account-actions">
+            <button type="button" className="button-neutral" onClick={handleRefreshWorkspace}>
+              Refresh
+            </button>
+            <button type="button" className="button-danger" onClick={handleSignOut}>
+              Sign Out
+            </button>
           </div>
+        </aside>
+      </section>
 
-          <div className="profile-grid">
-            <article className="profile-card">
-              <h3>Account</h3>
-              <p>
-                Username: <strong>{profile?.username ?? email.split("@")[0] ?? "-"}</strong>
-              </p>
-              <p>
-                Email: <strong>{profile?.email || email || "-"}</strong>
-              </p>
-              <p>
-                Display name: <strong>{profile?.display_name || "-"}</strong>
-              </p>
-              <p>
-                Member since:{" "}
-                <strong>
-                  {profile?.date_joined ? new Date(profile.date_joined).toLocaleDateString() : "-"}
-                </strong>
-              </p>
-            </article>
-          </div>
-        </section>
-      )}
-
-      <nav className="tabbar" aria-label="Workspace sections">
-        <button
-          type="button"
-          className={activeTab === "capture" ? "tab-button active" : "tab-button"}
-          onClick={() => setActiveTab("capture")}
-        >
-          <span>Capture</span>
-          <small>Write and ingest notes</small>
-        </button>
-        <button
-          type="button"
-          className={activeTab === "explore" ? "tab-button active" : "tab-button"}
-          onClick={() => setActiveTab("explore")}
-        >
-          <span>Explore</span>
-          <small>Search, ask, and browse notes</small>
-        </button>
-        <button
-          type="button"
-          className={activeTab === "graph" ? "tab-button active" : "tab-button"}
-          onClick={() => setActiveTab("graph")}
-        >
-          <span>Graph Lab</span>
-          <small>Nodes, links, and clusters</small>
-        </button>
-      </nav>
-
-      {activeTab === "capture" && (
-        <>
-          <section className="card">
-            <h2>Create Manual Note</h2>
+      {workspacePage === "capture" && (
+        <div className="page-stack capture-stack">
+          <section className="card capture-editor-card">
+            <h2>Create Note</h2>
             <form onSubmit={handleCreateNote}>
               <input
                 placeholder="Note title"
@@ -1335,8 +1364,8 @@ function App() {
             </form>
           </section>
 
-          <section className="grid three">
-            <article className="card">
+          <section className="grid two capture-ingest-grid">
+            <article className="card ingest-card ingest-url-card">
               <h2>Import URL</h2>
               <form onSubmit={handleIngestUrl}>
                 <input
@@ -1357,28 +1386,7 @@ function App() {
               </form>
             </article>
 
-            <article className="card">
-              <h2>Import Pasted Text</h2>
-              <form onSubmit={handleIngestText}>
-                <input
-                  placeholder="Optional title"
-                  value={textTitle}
-                  onChange={(event) => setTextTitle(event.target.value)}
-                />
-                <textarea
-                  placeholder="Paste raw text"
-                  rows={4}
-                  value={textToIngest}
-                  onChange={(event) => setTextToIngest(event.target.value)}
-                  required
-                />
-                <button type="submit" disabled={!isAuthenticated}>
-                  Import Text
-                </button>
-              </form>
-            </article>
-
-            <article className="card">
+            <article className="card ingest-card ingest-pdf-card">
               <h2>Import PDF</h2>
               <form onSubmit={handleIngestPdf}>
                 <input
@@ -1398,17 +1406,18 @@ function App() {
               </form>
             </article>
           </section>
-        </>
+        </div>
       )}
 
-      {activeTab === "explore" && (
-        <>
-          <section className="grid two explore-grid">
-            <article className="card">
-              <h2>Semantic Search</h2>
+      {workspacePage === "explore" && (
+        <div className="page-stack explore-stack">
+          <section className="grid two explore-grid explore-split-grid">
+            <article className="card explore-semantic-card">
+              <h2>Semantic Search (Qwen-grounded)</h2>
+              <p className="muted">Get a model-written answer using your most relevant notes as context.</p>
               <form onSubmit={handleSearch}>
                 <input
-                  placeholder="Search by meaning"
+                  placeholder="Ask in natural language"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   required
@@ -1429,7 +1438,7 @@ function App() {
                   </label>
                 </div>
                 <button type="submit" disabled={!isAuthenticated}>
-                  Search
+                  Generate Answer
                 </button>
               </form>
 
@@ -1446,7 +1455,7 @@ function App() {
               )}
 
               <div className="list compact">
-                {searchResults.length === 0 && <p className="muted">No search results yet.</p>}
+                {searchResults.length === 0 && <p className="muted">No semantic matches yet.</p>}
                 {searchResults.map((result) => (
                   <article key={result.note_id} className="item">
                     <h3>{result.title}</h3>
@@ -1457,41 +1466,49 @@ function App() {
               </div>
             </article>
 
-            <article className="card">
-              <h2>Ask Your Notes</h2>
-              <form onSubmit={handleAsk}>
+            <article className="card explore-browser-card">
+              <h2>Browse Notes</h2>
+              <div className="browser-filters">
                 <input
-                  placeholder="What do I know about...?"
-                  value={question}
-                  onChange={(event) => setQuestion(event.target.value)}
-                  required
+                  placeholder="Search title/content/source"
+                  value={browseQuery}
+                  onChange={(event) => setBrowseQuery(event.target.value)}
                 />
-                <button type="submit" disabled={!isAuthenticated}>
-                  Ask
-                </button>
-              </form>
-
-              {askResult && (
-                <div className="answer-box">
-                  <p>{askResult.answer}</p>
-                  <small>confidence: {askResult.confidence}</small>
-                </div>
-              )}
-
-              <div className="list compact">
-                <h3>Recent Q&A</h3>
-                {history.length === 0 && <p className="muted">No history yet.</p>}
-                {history.slice(0, 5).map((entry) => (
-                  <article key={entry.id} className="item">
-                    <h4>{entry.question}</h4>
-                    <p>{entry.answer}</p>
+                <select value={browseSource} onChange={(event) => setBrowseSource(event.target.value as "all" | "manual" | "url" | "pdf")}> 
+                  <option value="all">All Sources</option>
+                  <option value="manual">Manual</option>
+                  <option value="url">URL</option>
+                  <option value="pdf">PDF</option>
+                </select>
+                <input type="date" value={browseStartDate} onChange={(event) => setBrowseStartDate(event.target.value)} />
+                <input type="date" value={browseEndDate} onChange={(event) => setBrowseEndDate(event.target.value)} />
+                <select
+                  value={browseSort}
+                  onChange={(event) =>
+                    setBrowseSort(event.target.value as "updated_desc" | "updated_asc" | "title_asc" | "source")
+                  }
+                >
+                  <option value="updated_desc">Newest first</option>
+                  <option value="updated_asc">Oldest first</option>
+                  <option value="title_asc">Title A-Z</option>
+                  <option value="source">Source type</option>
+                </select>
+              </div>
+              <p className="muted">Showing {filteredBrowseNotes.length} of {notes.length} notes.</p>
+              <div className="list notes-scroll">
+                {filteredBrowseNotes.length === 0 && <p className="muted">No notes match current filters.</p>}
+                {filteredBrowseNotes.map((note) => (
+                  <article key={note.id} className="item">
+                    <h3>{note.title}</h3>
+                    <p>{note.content.slice(0, 200)}</p>
+                    <small>source: {note.source_type} | updated: {new Date(note.updated_at).toLocaleString()}</small>
                   </article>
                 ))}
               </div>
             </article>
           </section>
 
-          <section className="card">
+          <section className="card notes-library-card">
             <h2>All Notes</h2>
             <div className="list notes-scroll">
               {notes.length === 0 && <p className="muted">No notes yet.</p>}
@@ -1561,10 +1578,10 @@ function App() {
               ))}
             </div>
           </section>
-        </>
+        </div>
       )}
 
-      {activeTab === "graph" && (
+      {workspacePage === "graph" && (
         <section className="card">
         <div className="row between">
           <h2>Graph and Analytics</h2>
@@ -1588,7 +1605,7 @@ function App() {
             <p>{dashboard?.notes_added_this_week ?? 0}</p>
           </article>
           <article className="metric">
-            <h3>Questions Asked</h3>
+            <h3>Query Events</h3>
             <p>{dashboard?.questions_count ?? 0}</p>
           </article>
         </div>

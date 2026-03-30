@@ -72,14 +72,34 @@ def _build_excerpt(chunk: str, max_len: int = 240) -> str:
 	clean = re.sub(r"\s+", " ", chunk).strip()
 	if len(clean) <= max_len:
 		return clean
-	return f"{clean[: max_len - 3]}..."
+	parts = re.split(r"(?<=[.!?])\s+", clean)
+	selected = []
+	for sentence in parts:
+		next_value = " ".join(selected + [sentence]).strip()
+		if len(next_value) > max_len:
+			break
+		selected.append(sentence)
+	if selected:
+		return " ".join(selected)
+	trimmed = clean[: max_len - 3].rsplit(" ", 1)[0].strip()
+	return f"{trimmed or clean[: max_len - 3]}..."
 
 
 def _build_context(chunk: str, max_len: int = 1200) -> str:
 	clean = re.sub(r"\s+", " ", chunk).strip()
 	if len(clean) <= max_len:
 		return clean
-	return f"{clean[: max_len - 3]}..."
+	parts = re.split(r"(?<=[.!?])\s+", clean)
+	selected = []
+	for sentence in parts:
+		next_value = " ".join(selected + [sentence]).strip()
+		if len(next_value) > max_len:
+			break
+		selected.append(sentence)
+	if selected:
+		return " ".join(selected)
+	trimmed = clean[: max_len - 3].rsplit(" ", 1)[0].strip()
+	return f"{trimmed or clean[: max_len - 3]}..."
 
 
 def _normalize_text(value: str) -> str:
@@ -87,13 +107,15 @@ def _normalize_text(value: str) -> str:
 
 
 def _build_fallback_answer(matches: list[dict], response_length: str = "medium") -> str:
-	max_points = {"short": 2, "medium": 4, "long": 6}.get(response_length, 4)
-	bullets = []
-	for match in matches[:max_points]:
+	max_points = {"short": 2, "medium": 3, "long": 5}.get(response_length, 3)
+	sections = []
+	for index, match in enumerate(matches[:max_points], start=1):
 		note_title = match["note"].title
-		excerpt = match["excerpt"]
-		bullets.append(f"- {excerpt} [Note: {note_title}]")
-	return "Based on your notes:\n" + "\n".join(bullets)
+		excerpt = _build_excerpt(match["context"], max_len=300 if response_length == "long" else 220)
+		sections.append(f"{excerpt} [Source {index}: {note_title}]")
+	if not sections:
+		return "No relevant notes found for this search."
+	return " ".join(sections)
 
 
 def _generate_answer_with_ollama(
@@ -116,7 +138,7 @@ def _generate_answer_with_ollama(
 	provider_prompt = (
 		"You are a grounded assistant. Answer only using the provided sources. "
 		"If information is missing, say so clearly. End each key point with citation tags "
-		"like [Source 1], [Source 2]. "
+		"like [Source 1], [Source 2]. Write naturally and avoid long verbatim quotes. "
 		f"{length_hint}"
 	)
 	user_prompt = (
