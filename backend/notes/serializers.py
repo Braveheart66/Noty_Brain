@@ -2,7 +2,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from .linking import refresh_ai_links_for_note
-from .models import Note, NoteLink, NoteTag, NoteVersion, Tag
+from .models import Note, NoteLink, NoteTag, NoteVersion, Tag, Template
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -30,7 +30,9 @@ class NoteSerializer(serializers.ModelSerializer):
         model = Note
         fields = (
             "id",
+            "icon_emoji",
             "title",
+            "content_json",
             "content",
             "source_type",
             "source_ref",
@@ -115,3 +117,38 @@ class NoteLinkSerializer(serializers.ModelSerializer):
             "source_note": {"read_only": True},
             "relationship_type": {"required": False},
         }
+
+
+class BacklinkSerializer(serializers.Serializer):
+    link_id = serializers.UUIDField()
+    relationship_type = serializers.CharField()
+    is_ai_generated = serializers.BooleanField()
+    note_id = serializers.UUIDField()
+    icon_emoji = serializers.CharField()
+    title = serializers.CharField()
+    source_type = serializers.CharField()
+    updated_at = serializers.DateTimeField()
+
+
+class TemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Template
+        fields = (
+            "id",
+            "name",
+            "icon_emoji",
+            "content_json",
+            "content_text",
+            "is_builtin",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "is_builtin",
+            "created_at",
+            "updated_at",
+        )
+
+    def create(self, validated_data):
+        return Template.objects.create(user=self.context["request"].user, **validated_data)

@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType, FormEvent } from "react";
+import type { JSONContent } from "@tiptap/react";
 import {
+  addManualLink,
   createNote,
+  createTemplate,
   deleteNote,
+  fetchBacklinks,
   fetchDashboard,
   fetchGraph,
   fetchNotes,
   fetchProfile,
+  fetchTemplates,
   refreshAccessToken,
   ingestPdf,
   ingestUrl,
@@ -17,13 +22,21 @@ import {
   updateNote,
 } from "./api/client";
 import type {
+  Backlink,
   ClusterPayload,
   DashboardStats,
   GraphPayload,
   Note,
   Profile,
   SearchResult,
+  Template,
 } from "./api/client";
+import { BlockEditor } from "./components/editor/BlockEditor";
+import { EMPTY_DOC, jsonToPlainText, plainTextToDoc, sanitizeEditorJson } from "./components/editor/richText";
+import { CommandPalette } from "./components/workspace/CommandPalette";
+import { IntelligencePanel } from "./components/workspace/IntelligencePanel";
+import { TemplatePickerModal } from "./components/workspace/TemplatePickerModal";
+import { WorkspaceSidebar } from "./components/workspace/WorkspaceSidebar";
 import "./App.css";
 
 const CLUSTER_PALETTE = [
@@ -138,12 +151,18 @@ function App() {
   const [status, setStatus] = useState("Ready");
   const [profile, setProfile] = useState<Profile | null>(null);
 
-  const [noteTitle, setNoteTitle] = useState("");
-  const [noteBody, setNoteBody] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
-  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editContent, setEditContent] = useState("");
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+  const [editorTitle, setEditorTitle] = useState("");
+  const [editorIcon, setEditorIcon] = useState("📝");
+  const [editorJson, setEditorJson] = useState<JSONContent>(EMPTY_DOC);
+  const [editorText, setEditorText] = useState("");
+  const [editorDirty, setEditorDirty] = useState(false);
+  const [backlinks, setBacklinks] = useState<Backlink[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [templateNameDraft, setTemplateNameDraft] = useState("");
   const [noteActionPendingId, setNoteActionPendingId] = useState<string | null>(null);
 
   const [urlToIngest, setUrlToIngest] = useState("");
@@ -818,18 +837,78 @@ function App() {
   }, [browseEndDate, browseQuery, browseSort, browseSource, browseStartDate, notes]);
 
   const loadWorkspace = async (accessToken: string) => {
-    const [loadedNotes, loadedDashboard, loadedGraph, loadedProfile] = await Promise.all([
+    const [loadedNotes, loadedDashboard, loadedGraph, loadedProfile, loadedTemplates] = await Promise.all([
       fetchNotes(accessToken),
       fetchDashboard(accessToken),
       fetchGraph(accessToken),
       fetchProfile(accessToken),
+      fetchTemplates(accessToken),
     ]);
 
     setNotes(loadedNotes);
     setDashboard(loadedDashboard);
     setGraph(loadedGraph);
     setProfile(loadedProfile);
+    setTemplates(loadedTemplates);
   };
+
+  const activeNote = useMemo(() => {
+    if (!activeNoteId) {
+      return null;
+    }
+    return notes.find((note) => note.id === activeNoteId) ?? null;
+  }, [activeNoteId, notes]);
+
+  useEffect(() => {
+    if (notes.length === 0) {
+      setActiveNoteId(null);
+      setBacklinks([]);
+      return;
+    }
+
+    if (!activeNoteId || !notes.some((note) => note.id === activeNoteId)) {
+      setActiveNoteId(notes[0].id);
+    }
+  }, [activeNoteId, notes]);
+
+  useEffect(() => {
+    if (!activeNote) {
+      return;
+    }
+
+    setEditorTitle(activeNote.title);
+    setEditorIcon(activeNote.icon_emoji || "📝");
+    const sanitizedJson = sanitizeEditorJson(activeNote.content_json);
+    const hasUsableJson = Array.isArray(sanitizedJson.content) && sanitizedJson.content.length > 0;
+    const nextJson = hasUsableJson ? sanitizedJson : plainTextToDoc(activeNote.content);
+    setEditorJson(nextJson);
+    setEditorText(activeNote.content || jsonToPlainText(nextJson));
+    setEditorDirty(false);
+  }, [activeNote]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !activeNoteId) {
+      setBacklinks([]);
+      return;
+    }
+
+    let cancelled = false;
+    runWithAccessToken((activeToken) => fetchBacklinks(activeToken, activeNoteId))
+      .then((result) => {
+        if (!cancelled) {
+          setBacklinks(result);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBacklinks([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeNoteId, isAuthenticated]);
 
   const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -879,30 +958,274 @@ function App() {
     setGraph(null);
     setClusters(null);
     setNotes([]);
+    setBacklinks([]);
+    setTemplates([]);
     setAuthMode("login");
     setStatus("Signed out.");
     navigateTo("/login");
   };
 
-  const handleCreateNote = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const startDraftWithTemplate = (templateId: string | "blank") => {
+    if (templateId === "blank") {
+      setActiveNoteId(null);
+      setEditorTitle("Untitled Note");
+      setEditorIcon("📝");
+      setEditorJson(EMPTY_DOC);
+      setEditorText("");
+      setEditorDirty(true);
+      setShowTemplatePicker(false);
+      return;
+    }
+
+    const selectedTemplate = templates.find((template) => template.id === templateId);
+    if (!selectedTemplate) {
+      return;
+    }
+
+    const templateJson = sanitizeEditorJson(selectedTemplate.content_json);
+    setActiveNoteId(null);
+    setEditorTitle(selectedTemplate.name);
+    setEditorIcon(selectedTemplate.icon_emoji || "📝");
+    setEditorJson(templateJson);
+    setEditorText(selectedTemplate.content_text || jsonToPlainText(templateJson));
+    setEditorDirty(true);
+    setShowTemplatePicker(false);
+  };
+
+  const handleSaveActiveNote = async () => {
     if (!isAuthenticated) {
-      setStatus("Sign in first to create notes.");
+      setStatus("Sign in first to save notes.");
+      return;
+    }
+
+    const nextTitle = editorTitle.trim() || "Untitled Note";
+    const nextText = editorText.trim();
+
+    try {
+      if (activeNoteId) {
+        setNoteActionPendingId(activeNoteId);
+        const updated = await runWithAccessToken((activeToken) =>
+          updateNote(activeToken, activeNoteId, {
+            title: nextTitle,
+            content: nextText,
+            content_json: editorJson,
+            icon_emoji: editorIcon,
+          }),
+        );
+        setNotes((current) => current.map((note) => (note.id === activeNoteId ? updated : note)));
+        setStatus("Note updated.");
+      } else {
+        const created = await runWithAccessToken((activeToken) =>
+          createNote(activeToken, {
+            title: nextTitle,
+            content: nextText,
+            content_json: editorJson,
+            icon_emoji: editorIcon,
+          }),
+        );
+        setNotes((current) => [created, ...current]);
+        setActiveNoteId(created.id);
+        setStatus("Note created.");
+      }
+
+      setEditorDirty(false);
+      setClusters(null);
+      await refreshInsightsAfterMutation();
+    } catch (error) {
+      setStatus(`Could not save note: ${(error as Error).message}`);
+    } finally {
+      setNoteActionPendingId(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!isAuthenticated || !activeNoteId || !editorDirty) {
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const updated = await runWithAccessToken((activeToken) =>
+          updateNote(activeToken, activeNoteId, {
+            title: editorTitle.trim() || "Untitled Note",
+            content: editorText.trim(),
+            content_json: editorJson,
+            icon_emoji: editorIcon,
+          }),
+        );
+        setNotes((current) => current.map((note) => (note.id === activeNoteId ? updated : note)));
+        setEditorDirty(false);
+      } catch {
+        // Keep silent for autosave errors and let manual save provide explicit status.
+      }
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
+  }, [activeNoteId, editorDirty, editorIcon, editorJson, editorText, editorTitle, isAuthenticated]);
+
+  const handleRenameNote = async (noteId: string) => {
+    const current = notes.find((item) => item.id === noteId);
+    if (!current) {
+      return;
+    }
+    const nextTitle = window.prompt("Rename note", current.title)?.trim();
+    if (!nextTitle) {
+      return;
+    }
+    try {
+      const updated = await runWithAccessToken((activeToken) => updateNote(activeToken, noteId, { title: nextTitle }));
+      setNotes((prev) => prev.map((note) => (note.id === noteId ? updated : note)));
+    } catch (error) {
+      setStatus(`Rename failed: ${(error as Error).message}`);
+    }
+  };
+
+  const handleDuplicateNote = async (noteId: string) => {
+    const source = notes.find((note) => note.id === noteId);
+    if (!source) {
       return;
     }
 
     try {
       const created = await runWithAccessToken((activeToken) =>
-        createNote(activeToken, { title: noteTitle, content: noteBody }),
+        createNote(activeToken, {
+          title: `${source.title} Copy`,
+          content: source.content,
+          content_json: sanitizeEditorJson(source.content_json),
+          icon_emoji: source.icon_emoji,
+        }),
       );
       setNotes((current) => [created, ...current]);
-      setNoteTitle("");
-      setNoteBody("");
-      setStatus("Note created.");
+      setActiveNoteId(created.id);
+      setStatus("Note duplicated.");
     } catch (error) {
-      setStatus(`Could not create note: ${(error as Error).message}`);
+      setStatus(`Duplicate failed: ${(error as Error).message}`);
     }
   };
+
+  const handleDeleteNote = async (noteId: string) => {
+    const note = notes.find((item) => item.id === noteId);
+    if (!note) {
+      return;
+    }
+    const shouldDelete = window.confirm(`Delete note \"${note.title}\"?`);
+    if (!shouldDelete) {
+      return;
+    }
+
+    try {
+      setNoteActionPendingId(noteId);
+      await runWithAccessToken((activeToken) => deleteNote(activeToken, noteId));
+      setNotes((current) => current.filter((item) => item.id !== noteId));
+      if (activeNoteId === noteId) {
+        setActiveNoteId(null);
+      }
+      setStatus("Note deleted.");
+      await refreshInsightsAfterMutation();
+    } catch (error) {
+      setStatus(`Could not delete note: ${(error as Error).message}`);
+    } finally {
+      setNoteActionPendingId(null);
+    }
+  };
+
+  const handleUpdateEmoji = async (noteId: string, emoji: string) => {
+    try {
+      const updated = await runWithAccessToken((activeToken) => updateNote(activeToken, noteId, { icon_emoji: emoji }));
+      setNotes((current) => current.map((note) => (note.id === noteId ? updated : note)));
+      if (activeNoteId === noteId) {
+        setEditorIcon(updated.icon_emoji || emoji);
+      }
+    } catch (error) {
+      setStatus(`Emoji update failed: ${(error as Error).message}`);
+    }
+  };
+
+  const handleInsertBacklink = async (targetNoteId: string) => {
+    if (!activeNoteId || targetNoteId === activeNoteId) {
+      return;
+    }
+    try {
+      await runWithAccessToken((activeToken) =>
+        addManualLink(activeToken, activeNoteId, {
+          target_note: targetNoteId,
+          relationship_type: "references",
+        }),
+      );
+      await refreshInsightsAfterMutation();
+      const refreshedBacklinks = await runWithAccessToken((activeToken) => fetchBacklinks(activeToken, activeNoteId));
+      setBacklinks(refreshedBacklinks);
+      setStatus("Backlink connected.");
+    } catch (error) {
+      setStatus(`Backlink failed: ${(error as Error).message}`);
+    }
+  };
+
+  const handleSaveTemplate = async () => {
+    const name = templateNameDraft.trim();
+    if (!name) {
+      setStatus("Template name is required.");
+      return;
+    }
+    try {
+      const created = await runWithAccessToken((activeToken) =>
+        createTemplate(activeToken, {
+          name,
+          icon_emoji: editorIcon || "📝",
+          content_json: editorJson,
+          content_text: editorText,
+        }),
+      );
+      setTemplates((current) => [...current, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setTemplateNameDraft("");
+      setStatus("Template saved.");
+    } catch (error) {
+      setStatus(`Template save failed: ${(error as Error).message}`);
+    }
+  };
+
+  const handleCommandAction = (actionId: string) => {
+    if (actionId.startsWith("template:")) {
+      const templateId = actionId.replace("template:", "");
+      startDraftWithTemplate(templateId);
+      navigateTo("/capture");
+      return;
+    }
+
+    if (actionId === "new-note") {
+      setShowTemplatePicker(true);
+      navigateTo("/capture");
+      return;
+    }
+    if (actionId === "go-graph") {
+      navigateTo("/graph");
+      return;
+    }
+    if (actionId === "go-explore") {
+      navigateTo("/explore");
+      return;
+    }
+    if (actionId === "import-url") {
+      navigateTo("/capture");
+      setStatus("Use the Import URL card to ingest a source.");
+      return;
+    }
+    if (actionId === "ask-ai") {
+      navigateTo("/explore");
+      setStatus("Use Semantic Search to ask the model over your notes.");
+    }
+  };
+
+  useEffect(() => {
+    const onKeyboard = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setShowCommandPalette((current) => !current);
+      }
+    };
+    window.addEventListener("keydown", onKeyboard);
+    return () => window.removeEventListener("keydown", onKeyboard);
+  }, []);
 
   const handleIngestUrl = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -916,6 +1239,7 @@ function App() {
         ingestUrl(activeToken, { url: urlToIngest, title: urlTitle || undefined }),
       );
       setNotes((current) => [created, ...current]);
+      setActiveNoteId(created.id);
       setUrlToIngest("");
       setUrlTitle("");
       setStatus("URL imported as a note.");
@@ -940,6 +1264,7 @@ function App() {
         ingestPdf(activeToken, pdfFile, pdfTitle || undefined),
       );
       setNotes((current) => [created, ...current]);
+      setActiveNoteId(created.id);
       setPdfFile(null);
       setPdfTitle("");
       setStatus("PDF imported as a note.");
@@ -1022,78 +1347,6 @@ function App() {
     }
   };
 
-  const startEditingNote = (note: Note) => {
-    setEditingNoteId(note.id);
-    setEditTitle(note.title);
-    setEditContent(note.content);
-  };
-
-  const cancelEditingNote = () => {
-    setEditingNoteId(null);
-    setEditTitle("");
-    setEditContent("");
-  };
-
-  const handleSaveEditedNote = async (noteId: string) => {
-    if (!isAuthenticated) {
-      setStatus("Sign in first to edit notes.");
-      return;
-    }
-
-    const nextTitle = editTitle.trim();
-    const nextContent = editContent.trim();
-    if (!nextTitle || !nextContent) {
-      setStatus("Title and content are required.");
-      return;
-    }
-
-    try {
-      setNoteActionPendingId(noteId);
-      const updated = await runWithAccessToken((activeToken) =>
-        updateNote(activeToken, noteId, {
-          title: nextTitle,
-          content: nextContent,
-        }),
-      );
-      setNotes((current) => current.map((note) => (note.id === noteId ? updated : note)));
-      setClusters(null);
-      cancelEditingNote();
-      setStatus("Note updated.");
-      await refreshInsightsAfterMutation();
-    } catch (error) {
-      setStatus(`Could not update note: ${(error as Error).message}`);
-    } finally {
-      setNoteActionPendingId(null);
-    }
-  };
-
-  const handleDeleteNote = async (noteId: string, noteTitleText: string) => {
-    if (!isAuthenticated) {
-      setStatus("Sign in first to delete notes.");
-      return;
-    }
-
-    const shouldDelete = window.confirm(`Delete note \"${noteTitleText}\"?`);
-    if (!shouldDelete) {
-      return;
-    }
-
-    try {
-      setNoteActionPendingId(noteId);
-      await runWithAccessToken((activeToken) => deleteNote(activeToken, noteId));
-      setNotes((current) => current.filter((note) => note.id !== noteId));
-      setClusters(null);
-      if (editingNoteId === noteId) {
-        cancelEditingNote();
-      }
-      setStatus("Note deleted.");
-      await refreshInsightsAfterMutation();
-    } catch (error) {
-      setStatus(`Could not delete note: ${(error as Error).message}`);
-    } finally {
-      setNoteActionPendingId(null);
-    }
-  };
 
   const handleNodeClick = (nodeObject: object) => {
     const node = nodeObject as GraphNode3D;
@@ -1340,246 +1593,246 @@ function App() {
         </aside>
       </section>
 
-      {workspacePage === "capture" && (
-        <div className="page-stack capture-stack">
-          <section className="card capture-editor-card">
-            <h2>Create Note</h2>
-            <form onSubmit={handleCreateNote}>
-              <input
-                placeholder="Note title"
-                value={noteTitle}
-                onChange={(event) => setNoteTitle(event.target.value)}
-                required
-              />
-              <textarea
-                placeholder="Write markdown or plain text"
-                rows={5}
-                value={noteBody}
-                onChange={(event) => setNoteBody(event.target.value)}
-                required
-              />
-              <button type="submit" disabled={!isAuthenticated}>
-                Save Note
-              </button>
-            </form>
-          </section>
+      <div className="workspace-body">
+        <WorkspaceSidebar
+          notes={notes}
+          activeNoteId={activeNoteId}
+          onSelectNote={(noteId) => {
+            setActiveNoteId(noteId);
+            navigateTo("/capture");
+          }}
+          onCreateNote={() => setShowTemplatePicker(true)}
+          onRenameNote={handleRenameNote}
+          onDeleteNote={handleDeleteNote}
+          onDuplicateNote={handleDuplicateNote}
+          onUpdateEmoji={handleUpdateEmoji}
+        />
 
-          <section className="grid two capture-ingest-grid">
-            <article className="card ingest-card ingest-url-card">
-              <h2>Import URL</h2>
-              <form onSubmit={handleIngestUrl}>
-                <input
-                  type="url"
-                  placeholder="https://example.com/article"
-                  value={urlToIngest}
-                  onChange={(event) => setUrlToIngest(event.target.value)}
-                  required
-                />
-                <input
-                  placeholder="Optional title override"
-                  value={urlTitle}
-                  onChange={(event) => setUrlTitle(event.target.value)}
-                />
-                <button type="submit" disabled={!isAuthenticated}>
-                  Import URL
-                </button>
-              </form>
-            </article>
+        <main className="workspace-content">
+          {workspacePage === "capture" && (
+            <div className="page-stack capture-stack">
+              <section className="card capture-editor-card">
+                <div className="row between">
+                  <h2>Block Editor</h2>
+                  <div className="row">
+                    <button type="button" className="button-neutral" onClick={() => setShowTemplatePicker(true)}>
+                      Templates
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveActiveNote}
+                      disabled={Boolean(noteActionPendingId && activeNoteId === noteActionPendingId)}
+                    >
+                      Save Note
+                    </button>
+                  </div>
+                </div>
 
-            <article className="card ingest-card ingest-pdf-card">
-              <h2>Import PDF</h2>
-              <form onSubmit={handleIngestPdf}>
-                <input
-                  placeholder="Optional title"
-                  value={pdfTitle}
-                  onChange={(event) => setPdfTitle(event.target.value)}
-                />
-                <input
-                  type="file"
-                  accept="application/pdf"
-                  onChange={(event) => setPdfFile(event.target.files?.[0] ?? null)}
-                  required
-                />
-                <button type="submit" disabled={!isAuthenticated}>
-                  Import PDF
-                </button>
-              </form>
-            </article>
-          </section>
-        </div>
-      )}
+                <div className="row">
+                  <input
+                    className="note-emoji-input"
+                    value={editorIcon}
+                    onChange={(event) => setEditorIcon(event.target.value || "📝")}
+                    maxLength={4}
+                  />
+                  <input
+                    placeholder="Note title"
+                    value={editorTitle}
+                    onChange={(event) => {
+                      setEditorTitle(event.target.value);
+                      setEditorDirty(true);
+                    }}
+                  />
+                </div>
 
-      {workspacePage === "explore" && (
-        <div className="page-stack explore-stack">
-          <section className="grid two explore-grid explore-split-grid">
-            <article className="card explore-semantic-card">
-              <h2>Semantic Search (Qwen-grounded)</h2>
-              <p className="muted">Get a model-written answer using your most relevant notes as context.</p>
-              <form onSubmit={handleSearch}>
-                <input
-                  placeholder="Ask in natural language"
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  required
+                <BlockEditor
+                  initialContent={editorJson}
+                  availableNotes={notes}
+                  onUpdate={({ json, text }) => {
+                    setEditorJson(json);
+                    setEditorText(text);
+                    setEditorDirty(true);
+                  }}
+                  onBacklinkSelect={handleInsertBacklink}
                 />
-                <div className="search-controls-row">
-                  <label className="search-control-field">
-                    <span>Answer length</span>
+
+                <div className="row template-save-row">
+                  <input
+                    placeholder="Save current note as template"
+                    value={templateNameDraft}
+                    onChange={(event) => setTemplateNameDraft(event.target.value)}
+                  />
+                  <button type="button" className="button-neutral" onClick={handleSaveTemplate}>
+                    Save Template
+                  </button>
+                </div>
+              </section>
+
+              <section className="grid two capture-ingest-grid">
+                <article className="card ingest-card ingest-url-card">
+                  <h2>Import URL</h2>
+                  <form onSubmit={handleIngestUrl}>
+                    <input
+                      type="url"
+                      placeholder="https://example.com/article"
+                      value={urlToIngest}
+                      onChange={(event) => setUrlToIngest(event.target.value)}
+                      required
+                    />
+                    <input
+                      placeholder="Optional title override"
+                      value={urlTitle}
+                      onChange={(event) => setUrlTitle(event.target.value)}
+                    />
+                    <button type="submit" disabled={!isAuthenticated}>
+                      Import URL
+                    </button>
+                  </form>
+                </article>
+
+                <article className="card ingest-card ingest-pdf-card">
+                  <h2>Import PDF</h2>
+                  <form onSubmit={handleIngestPdf}>
+                    <input
+                      placeholder="Optional title"
+                      value={pdfTitle}
+                      onChange={(event) => setPdfTitle(event.target.value)}
+                    />
+                    <input
+                      type="file"
+                      accept="application/pdf"
+                      onChange={(event) => setPdfFile(event.target.files?.[0] ?? null)}
+                      required
+                    />
+                    <button type="submit" disabled={!isAuthenticated}>
+                      Import PDF
+                    </button>
+                  </form>
+                </article>
+              </section>
+            </div>
+          )}
+
+          {workspacePage === "explore" && (
+            <div className="page-stack explore-stack">
+              <section className="grid two explore-grid explore-split-grid">
+                <article className="card explore-semantic-card">
+                  <h2>Semantic Search (Qwen-grounded)</h2>
+                  <p className="muted">Get a model-written answer using your most relevant notes as context.</p>
+                  <form onSubmit={handleSearch}>
+                    <input
+                      placeholder="Ask in natural language"
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      required
+                    />
+                    <div className="search-controls-row">
+                      <label className="search-control-field">
+                        <span>Answer length</span>
+                        <select
+                          value={searchResponseLength}
+                          onChange={(event) =>
+                            setSearchResponseLength(event.target.value as "short" | "medium" | "long")
+                          }
+                        >
+                          <option value="short">Short</option>
+                          <option value="medium">Medium</option>
+                          <option value="long">Long</option>
+                        </select>
+                      </label>
+                    </div>
+                    <button type="submit" disabled={!isAuthenticated}>
+                      Generate Answer
+                    </button>
+                  </form>
+
+                  {searchAnswer && (
+                    <div className="answer-box">
+                      <p>{searchAnswer}</p>
+                      <small>
+                        confidence: {searchConfidence ?? 0}
+                        {searchSources.length > 0
+                          ? ` | sources: ${searchSources.map((note) => note.title).join(", ")}`
+                          : ""}
+                      </small>
+                    </div>
+                  )}
+
+                  <div className="list compact">
+                    {searchResults.length === 0 && <p className="muted">No semantic matches yet.</p>}
+                    {searchResults.map((result) => (
+                      <article key={result.note_id} className="item">
+                        <h3>{result.title}</h3>
+                        <p>{result.excerpt}</p>
+                        <small>score: {result.similarity_score}</small>
+                        <button
+                          type="button"
+                          className="button-neutral"
+                          onClick={() => {
+                            setActiveNoteId(result.note_id);
+                            navigateTo("/capture");
+                          }}
+                        >
+                          Open Note
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                </article>
+
+                <article className="card explore-browser-card">
+                  <h2>Browse Notes</h2>
+                  <div className="browser-filters">
+                    <input
+                      placeholder="Search title/content/source"
+                      value={browseQuery}
+                      onChange={(event) => setBrowseQuery(event.target.value)}
+                    />
+                    <select value={browseSource} onChange={(event) => setBrowseSource(event.target.value as "all" | "manual" | "url" | "pdf")}> 
+                      <option value="all">All Sources</option>
+                      <option value="manual">Manual</option>
+                      <option value="url">URL</option>
+                      <option value="pdf">PDF</option>
+                    </select>
+                    <input type="date" value={browseStartDate} onChange={(event) => setBrowseStartDate(event.target.value)} />
+                    <input type="date" value={browseEndDate} onChange={(event) => setBrowseEndDate(event.target.value)} />
                     <select
-                      value={searchResponseLength}
+                      value={browseSort}
                       onChange={(event) =>
-                        setSearchResponseLength(event.target.value as "short" | "medium" | "long")
+                        setBrowseSort(event.target.value as "updated_desc" | "updated_asc" | "title_asc" | "source")
                       }
                     >
-                      <option value="short">Short</option>
-                      <option value="medium">Medium</option>
-                      <option value="long">Long</option>
+                      <option value="updated_desc">Newest first</option>
+                      <option value="updated_asc">Oldest first</option>
+                      <option value="title_asc">Title A-Z</option>
+                      <option value="source">Source type</option>
                     </select>
-                  </label>
-                </div>
-                <button type="submit" disabled={!isAuthenticated}>
-                  Generate Answer
-                </button>
-              </form>
-
-              {searchAnswer && (
-                <div className="answer-box">
-                  <p>{searchAnswer}</p>
-                  <small>
-                    confidence: {searchConfidence ?? 0}
-                    {searchSources.length > 0
-                      ? ` | sources: ${searchSources.map((note) => note.title).join(", ")}`
-                      : ""}
-                  </small>
-                </div>
-              )}
-
-              <div className="list compact">
-                {searchResults.length === 0 && <p className="muted">No semantic matches yet.</p>}
-                {searchResults.map((result) => (
-                  <article key={result.note_id} className="item">
-                    <h3>{result.title}</h3>
-                    <p>{result.excerpt}</p>
-                    <small>score: {result.similarity_score}</small>
-                  </article>
-                ))}
-              </div>
-            </article>
-
-            <article className="card explore-browser-card">
-              <h2>Browse Notes</h2>
-              <div className="browser-filters">
-                <input
-                  placeholder="Search title/content/source"
-                  value={browseQuery}
-                  onChange={(event) => setBrowseQuery(event.target.value)}
-                />
-                <select value={browseSource} onChange={(event) => setBrowseSource(event.target.value as "all" | "manual" | "url" | "pdf")}> 
-                  <option value="all">All Sources</option>
-                  <option value="manual">Manual</option>
-                  <option value="url">URL</option>
-                  <option value="pdf">PDF</option>
-                </select>
-                <input type="date" value={browseStartDate} onChange={(event) => setBrowseStartDate(event.target.value)} />
-                <input type="date" value={browseEndDate} onChange={(event) => setBrowseEndDate(event.target.value)} />
-                <select
-                  value={browseSort}
-                  onChange={(event) =>
-                    setBrowseSort(event.target.value as "updated_desc" | "updated_asc" | "title_asc" | "source")
-                  }
-                >
-                  <option value="updated_desc">Newest first</option>
-                  <option value="updated_asc">Oldest first</option>
-                  <option value="title_asc">Title A-Z</option>
-                  <option value="source">Source type</option>
-                </select>
-              </div>
-              <p className="muted">Showing {filteredBrowseNotes.length} of {notes.length} notes.</p>
-              <div className="list notes-scroll">
-                {filteredBrowseNotes.length === 0 && <p className="muted">No notes match current filters.</p>}
-                {filteredBrowseNotes.map((note) => (
-                  <article key={note.id} className="item">
-                    <h3>{note.title}</h3>
-                    <p>{note.content.slice(0, 200)}</p>
-                    <small>source: {note.source_type} | updated: {new Date(note.updated_at).toLocaleString()}</small>
-                  </article>
-                ))}
-              </div>
-            </article>
-          </section>
-
-          <section className="card notes-library-card">
-            <h2>All Notes</h2>
-            <div className="list notes-scroll">
-              {notes.length === 0 && <p className="muted">No notes yet.</p>}
-              {notes.map((note) => (
-                <article key={note.id} className="item">
-                  {editingNoteId === note.id ? (
-                    <div className="note-edit-wrap">
-                      <input
-                        value={editTitle}
-                        onChange={(event) => setEditTitle(event.target.value)}
-                        placeholder="Note title"
-                        disabled={noteActionPendingId === note.id}
-                      />
-                      <textarea
-                        rows={6}
-                        value={editContent}
-                        onChange={(event) => setEditContent(event.target.value)}
-                        placeholder="Note content"
-                        disabled={noteActionPendingId === note.id}
-                      />
-                      <div className="note-actions">
-                        <button
-                          type="button"
-                          onClick={() => handleSaveEditedNote(note.id)}
-                          disabled={noteActionPendingId === note.id}
-                        >
-                          Save
-                        </button>
+                  </div>
+                  <p className="muted">Showing {filteredBrowseNotes.length} of {notes.length} notes.</p>
+                  <div className="list notes-scroll">
+                    {filteredBrowseNotes.length === 0 && <p className="muted">No notes match current filters.</p>}
+                    {filteredBrowseNotes.map((note) => (
+                      <article key={note.id} className="item">
+                        <h3>{note.title}</h3>
+                        <p>{note.content.slice(0, 200)}</p>
+                        <small>source: {note.source_type} | updated: {new Date(note.updated_at).toLocaleString()}</small>
                         <button
                           type="button"
                           className="button-neutral"
-                          onClick={cancelEditingNote}
-                          disabled={noteActionPendingId === note.id}
+                          onClick={() => {
+                            setActiveNoteId(note.id);
+                            navigateTo("/capture");
+                          }}
                         >
-                          Cancel
+                          Open Note
                         </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <h3>{note.title}</h3>
-                      <p>{note.content.slice(0, 240)}</p>
-                      <small>
-                        source: {note.source_type} | updated: {new Date(note.updated_at).toLocaleString()}
-                      </small>
-                      <div className="note-actions">
-                        <button
-                          type="button"
-                          className="button-neutral"
-                          onClick={() => startEditingNote(note)}
-                          disabled={noteActionPendingId === note.id}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="button-danger"
-                          onClick={() => handleDeleteNote(note.id, note.title)}
-                          disabled={noteActionPendingId === note.id}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </>
-                  )}
+                      </article>
+                    ))}
+                  </div>
                 </article>
-              ))}
+              </section>
             </div>
-          </section>
-        </div>
-      )}
+          )}
 
       {workspacePage === "graph" && (
         <section className="card">
@@ -1892,6 +2145,38 @@ function App() {
         </div>
       </section>
       )}
+
+        </main>
+
+        <IntelligencePanel
+          activeNote={activeNote}
+          backlinks={backlinks}
+          graph={graph}
+          onOpenNote={(noteId) => {
+            setActiveNoteId(noteId);
+            navigateTo("/capture");
+          }}
+        />
+      </div>
+
+      <TemplatePickerModal
+        open={showTemplatePicker}
+        templates={templates}
+        onClose={() => setShowTemplatePicker(false)}
+        onSelectTemplate={startDraftWithTemplate}
+      />
+
+      <CommandPalette
+        open={showCommandPalette}
+        notes={notes}
+        templates={templates}
+        onClose={() => setShowCommandPalette(false)}
+        onOpenNote={(noteId) => {
+          setActiveNoteId(noteId);
+          navigateTo("/capture");
+        }}
+        onAction={handleCommandAction}
+      />
 
       <footer className="status">Status: {status}</footer>
     </div>

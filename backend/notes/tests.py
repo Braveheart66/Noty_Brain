@@ -100,3 +100,38 @@ class NotesApiTests(APITestCase):
 		)
 		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 		self.assertEqual(response.data["source_type"], Note.SOURCE_URL)
+
+	def test_backlinks_returns_source_notes(self):
+		target = Note.objects.create(user=self.user, title="Target", content="Dest")
+		source = Note.objects.create(user=self.user, title="Source", content="Src")
+		NoteLink.objects.create(
+			source_note=source,
+			target_note=target,
+			relationship_type="related to",
+			is_ai_generated=False,
+		)
+
+		response = self.client.get(f"/api/notes/{target.id}/backlinks/")
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(len(response.data), 1)
+		self.assertEqual(response.data[0]["title"], "Source")
+
+	def test_templates_endpoint_returns_builtin_templates(self):
+		response = self.client.get("/api/notes/templates/")
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		names = [item["name"] for item in response.data]
+		self.assertIn("Meeting Notes", names)
+		self.assertIn("Research", names)
+		self.assertIn("Journal", names)
+
+	def test_templates_endpoint_creates_user_template(self):
+		payload = {
+			"name": "My Custom",
+			"icon_emoji": "✨",
+			"content_text": "Heading\nBody",
+			"content_json": {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Hello"}]}]},
+		}
+		create_response = self.client.post("/api/notes/templates/", payload, format="json")
+		self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+		self.assertEqual(create_response.data["name"], "My Custom")
+		self.assertFalse(create_response.data["is_builtin"])

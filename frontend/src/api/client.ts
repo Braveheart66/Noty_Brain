@@ -11,10 +11,38 @@ export type LoginResponse = {
 
 export type Note = {
   id: string;
+  icon_emoji: string;
   title: string;
+  content_json?: Record<string, unknown>;
   content: string;
   source_type: "manual" | "url" | "pdf";
   source_ref?: string;
+  embedding_status?: "pending" | "done" | "failed";
+  failed_embedding?: boolean;
+  created_at?: string;
+  updated_at: string;
+  tags?: Array<{ id: string; name: string; color: string }>;
+};
+
+export type Backlink = {
+  link_id: string;
+  relationship_type: string;
+  is_ai_generated: boolean;
+  note_id: string;
+  icon_emoji: string;
+  title: string;
+  source_type: "manual" | "url" | "pdf";
+  updated_at: string;
+};
+
+export type Template = {
+  id: string;
+  name: string;
+  icon_emoji: string;
+  content_json: Record<string, unknown>;
+  content_text: string;
+  is_builtin: boolean;
+  created_at: string;
   updated_at: string;
 };
 
@@ -161,7 +189,7 @@ export function fetchProfile(accessToken: string) {
 
 export function createNote(
   accessToken: string,
-  payload: { title: string; content: string },
+  payload: { title: string; content: string; content_json?: Record<string, unknown>; icon_emoji?: string },
 ) {
   return request<Note>("/notes/", {
     method: "POST",
@@ -178,7 +206,7 @@ export function createNote(
 export function updateNote(
   accessToken: string,
   noteId: string,
-  payload: { title?: string; content?: string },
+  payload: { title?: string; content?: string; content_json?: Record<string, unknown>; icon_emoji?: string },
 ) {
   return request<Note>(`/notes/${noteId}/`, {
     method: "PATCH",
@@ -195,6 +223,54 @@ export function deleteNote(accessToken: string, noteId: string) {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
+  });
+}
+
+export function addManualLink(
+  accessToken: string,
+  noteId: string,
+  payload: { target_note: string; relationship_type?: string },
+) {
+  return request<{ id: string }>(`/notes/${noteId}/links/`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchBacklinks(accessToken: string, noteId: string) {
+  return request<Backlink[]>(`/notes/${noteId}/backlinks/`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+}
+
+export function fetchTemplates(accessToken: string) {
+  return request<Template[]>("/notes/templates/", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+}
+
+export function createTemplate(
+  accessToken: string,
+  payload: {
+    name: string;
+    icon_emoji: string;
+    content_json: Record<string, unknown>;
+    content_text: string;
+  },
+) {
+  return request<Template>("/notes/templates/", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
   });
 }
 

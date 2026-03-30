@@ -40,7 +40,9 @@ class Note(models.Model):
 
 	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 	user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notes")
+	icon_emoji = models.CharField(max_length=16, default="📝")
 	title = models.CharField(max_length=255)
+	content_json = models.JSONField(default=dict, blank=True)
 	content = models.TextField(blank=True)
 	source_type = models.CharField(max_length=16, choices=SOURCE_CHOICES, default=SOURCE_MANUAL)
 	source_ref = models.TextField(blank=True)
@@ -61,6 +63,34 @@ class Note(models.Model):
 
 	def __str__(self) -> str:
 		return self.title
+
+
+class Template(models.Model):
+	id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+	user = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name="templates",
+		null=True,
+		blank=True,
+	)
+	name = models.CharField(max_length=120)
+	icon_emoji = models.CharField(max_length=16, default="📝")
+	content_json = models.JSONField(default=dict, blank=True)
+	content_text = models.TextField(blank=True)
+	is_builtin = models.BooleanField(default=False)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ["is_builtin", "name"]
+		unique_together = (
+			("user", "name"),
+		)
+
+	def __str__(self) -> str:
+		owner = "builtin" if self.user_id is None else str(self.user_id)
+		return f"{owner}:{self.name}"
 
 
 class NoteVersion(models.Model):

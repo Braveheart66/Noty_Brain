@@ -16,9 +16,76 @@ try:
 except Exception:  # pragma: no cover - fallback parser path below
 	ReadabilityDocument = None
 
-from .models import Note, NoteLink, Tag
+from .models import Note, NoteLink, Tag, Template
 from .linking import refresh_ai_links_for_note
-from .serializers import NoteDetailSerializer, NoteLinkSerializer, NoteSerializer, TagSerializer
+from .serializers import (
+	BacklinkSerializer,
+	NoteDetailSerializer,
+	NoteLinkSerializer,
+	NoteSerializer,
+	TagSerializer,
+	TemplateSerializer,
+)
+
+
+BUILTIN_TEMPLATES = [
+	{
+		"name": "Meeting Notes",
+		"icon_emoji": "🗓️",
+		"content_text": "Agenda\n\nAttendees\n\nDecisions\n\nAction Items\n",
+		"content_json": {
+			"type": "doc",
+			"content": [
+				{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Agenda"}]},
+				{"type": "paragraph"},
+				{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Attendees"}]},
+				{"type": "paragraph"},
+				{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Decisions"}]},
+				{"type": "paragraph"},
+				{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Action Items"}]},
+				{"type": "paragraph"},
+			],
+		},
+	},
+	{
+		"name": "Research",
+		"icon_emoji": "🔬",
+		"content_text": "Question\n\nHypothesis\n\nSources\n\nFindings\n\nNext Steps\n",
+		"content_json": {
+			"type": "doc",
+			"content": [
+				{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Question"}]},
+				{"type": "paragraph"},
+				{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Hypothesis"}]},
+				{"type": "paragraph"},
+				{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Sources"}]},
+				{"type": "paragraph"},
+				{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Findings"}]},
+				{"type": "paragraph"},
+				{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Next Steps"}]},
+				{"type": "paragraph"},
+			],
+		},
+	},
+	{
+		"name": "Journal",
+		"icon_emoji": "📓",
+		"content_text": "Today\n\nHighlights\n\nChallenges\n\nReflection\n",
+		"content_json": {
+			"type": "doc",
+			"content": [
+				{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Today"}]},
+				{"type": "paragraph"},
+				{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Highlights"}]},
+				{"type": "paragraph"},
+				{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Challenges"}]},
+				{"type": "paragraph"},
+				{"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Reflection"}]},
+				{"type": "paragraph"},
+			],
+		},
+	},
+]
 
 MAX_PDF_UPLOAD_BYTES = 20 * 1024 * 1024
 
@@ -172,6 +239,59 @@ class NoteViewSet(viewsets.ModelViewSet):
 		link.delete()
 
 		return Response(status=status.HTTP_204_NO_CONTENT)
+
+	@action(detail=True, methods=["get"], url_path="backlinks")
+	def backlinks(self, request, pk=None):
+		note = self.get_object()
+		links = (
+			NoteLink.objects.filter(target_note=note, source_note__user=request.user, source_note__is_deleted=False)
+			.select_related("source_note")
+			.order_by("-created_at")
+		)
+
+		payload = [
+			{
+				"link_id": link.id,
+				"relationship_type": link.relationship_type,
+				"is_ai_generated": link.is_ai_generated,
+				"note_id": link.source_note.id,
+				"icon_emoji": link.source_note.icon_emoji,
+				"title": link.source_note.title,
+				"source_type": link.source_note.source_type,
+				"updated_at": link.source_note.updated_at,
+			}
+			for link in links
+		]
+		return Response(BacklinkSerializer(payload, many=True).data, status=status.HTTP_200_OK)
+
+
+class TemplateListCreateView(APIView):
+	permission_classes = [permissions.IsAuthenticated]
+
+	def _ensure_builtin_templates(self):
+		for template in BUILTIN_TEMPLATES:
+			Template.objects.get_or_create(
+				user=None,
+				name=template["name"],
+				defaults={
+					"is_builtin": True,
+					"icon_emoji": template["icon_emoji"],
+					"content_text": template["content_text"],
+					"content_json": template["content_json"],
+				},
+			)
+
+	def get(self, request):
+		self._ensure_builtin_templates()
+		templates = Template.objects.filter(user__isnull=True) | Template.objects.filter(user=request.user)
+		templates = templates.order_by("is_builtin", "name")
+		return Response(TemplateSerializer(templates, many=True).data, status=status.HTTP_200_OK)
+
+	def post(self, request):
+		serializer = TemplateSerializer(data=request.data, context={"request": request})
+		serializer.is_valid(raise_exception=True)
+		template = serializer.save()
+		return Response(TemplateSerializer(template).data, status=status.HTTP_201_CREATED)
 
 
 class URLIngestView(APIView):
