@@ -1229,6 +1229,13 @@ button:disabled {
   opacity: 0.35;
 }
 
+.dotted-surface {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
 .login-stage {
   position: relative;
   z-index: 1;

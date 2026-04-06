@@ -38,6 +38,7 @@ import { HomeGraphHero } from "./components/workspace/HomeGraphHero";
 import { IntelligencePanel } from "./components/workspace/IntelligencePanel";
 import { TemplatePickerModal } from "./components/workspace/TemplatePickerModal";
 import { WorkspaceSidebar } from "./components/workspace/WorkspaceSidebar";
+import { DottedSurface } from "./components/editor/DottedSurface";
 import "./App.css";
 
 const CLUSTER_PALETTE = [
@@ -1606,7 +1607,7 @@ function App() {
   if (!isAuthenticated) {
     return (
       <div className="shell login-shell">
-        <div className="login-bg-grid" aria-hidden="true" />
+        <DottedSurface className="dotted-surface" />
 
         <section className="login-stage">
           <article className="login-intro">
