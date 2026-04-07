@@ -1281,6 +1281,7 @@
 
 .graph-soft3d-note {
   margin: 0 0 0.5rem;
+  max-width: 70ch;
 }
 
 .browse-date-row {
@@ -1540,8 +1541,16 @@
   padding-bottom: 2rem;
 }
 
+.graph-view-control-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
 .graph-view-tabs {
-  margin: 0 auto;
+  margin: 0;
   display: inline-flex;
   border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
   border-radius: 999px;
@@ -1550,6 +1559,39 @@
   gap: 0.2rem;
   max-width: 100%;
   overflow: hidden;
+}
+
+.graph-preset-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.24rem;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  padding: 0.18rem;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.graph-preset-tab {
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+  font-weight: 500;
+  line-height: 1.1;
+  padding: 0.3rem 0.62rem;
+  white-space: nowrap;
+}
+
+.graph-preset-tab.active {
+  background: color-mix(in srgb, var(--accent) 82%, #0f6ba8 18%);
+  color: #fff;
+}
+
+.graph-preset-tab:hover:not(.active) {
+  color: var(--ink);
 }
 
 .graph-view-tab-button {
@@ -1821,6 +1863,13 @@
 
   .answer-length-toggle,
   .graph-view-tabs {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .graph-view-control-row,
+  .graph-preset-tabs {
     width: 100%;
     justify-content: center;
     flex-wrap: wrap;
