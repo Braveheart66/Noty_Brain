@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ComponentType, FormEvent } from "react";
+import { Component, useEffect, useMemo, useRef, useState } from "react";
+import type { ComponentType, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import type { JSONContent } from "@tiptap/react";
 import {
   addManualLink,
@@ -44,7 +44,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover
 import { MockCaptureUI } from "./components/ui/mock-capture-ui";
 import { MockExploreUI } from "./components/ui/mock-explore-ui";
 import { MockGraphUI } from "./components/ui/mock-graph-ui";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import "./App.css";
 import "./home-redesign-fixes.css";
 
@@ -122,6 +122,42 @@ type DraftTemplatePayload = {
 type HomeChipIconProps = {
   className?: string;
 };
+
+type GraphRuntimeBoundaryProps = {
+  children: ReactNode;
+  resetKey: string;
+  fallback: ReactNode;
+  onError: (error: Error) => void;
+};
+
+type GraphRuntimeBoundaryState = {
+  hasError: boolean;
+};
+
+class GraphRuntimeBoundary extends Component<GraphRuntimeBoundaryProps, GraphRuntimeBoundaryState> {
+  state: GraphRuntimeBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): GraphRuntimeBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error): void {
+    this.props.onError(error);
+  }
+
+  componentDidUpdate(prevProps: GraphRuntimeBoundaryProps): void {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render(): ReactNode {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
+}
 
 function BrainIcon({ className }: HomeChipIconProps) {
   return (
@@ -296,6 +332,23 @@ function resolveWorkspacePage(path: string): WorkspacePage {
   return "capture";
 }
 
+function wrapIndex(index: number, length: number): number {
+  if (length <= 0) {
+    return 0;
+  }
+  return ((index % length) + length) % length;
+}
+
+function signedOffset(index: number, activeIndex: number, length: number, loop: boolean): number {
+  const raw = index - activeIndex;
+  if (!loop || length <= 1) {
+    return raw;
+  }
+
+  const wrappedAlt = raw > 0 ? raw - length : raw + length;
+  return Math.abs(wrappedAlt) < Math.abs(raw) ? wrappedAlt : raw;
+}
+
 function App() {
   const [loginForm, setLoginForm] = useState<LoginFormState>({ email: "", password: "" });
   const [registerForm, setRegisterForm] = useState<RegisterFormState>({ displayName: "", email: "", password: "" });
@@ -343,6 +396,8 @@ function App() {
   const [browseToDate, setBrowseToDate] = useState("");
   const [browseSort, setBrowseSort] = useState<"updated_desc" | "updated_asc">("updated_desc");
   const [browseFilterOpen, setBrowseFilterOpen] = useState(false);
+  const [browseActiveIndex, setBrowseActiveIndex] = useState(0);
+  const [browseStackHovering, setBrowseStackHovering] = useState(false);
 
   const [dashboard, setDashboard] = useState<DashboardStats | null>(null);
   const [graph, setGraph] = useState<GraphPayload | null>(null);
@@ -351,6 +406,8 @@ function App() {
   const [graphMode, setGraphMode] = useState<GraphRenderMode>("2d");
   const [forceGraph2D, setForceGraph2D] = useState<GraphRenderer | null>(null);
   const [forceGraph3D, setForceGraph3D] = useState<GraphRenderer | null>(null);
+  const [graph3DRetryNonce, setGraph3DRetryNonce] = useState(0);
+  const [graph3DRuntimeError, setGraph3DRuntimeError] = useState<string | null>(null);
   const [graphLibError, setGraphLibError] = useState<string | null>(null);
   const [nodeSearch, setNodeSearch] = useState("");
   const [focusNodeId, setFocusNodeId] = useState("");
@@ -364,6 +421,9 @@ function App() {
   const signInWaveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const captureEditorFocusRef = useRef<HTMLElement | null>(null);
+  const browseStackStageRef = useRef<HTMLDivElement | null>(null);
+  const reduceMotion = useReducedMotion();
+  const [browseStackStageWidth, setBrowseStackStageWidth] = useState(0);
   const [graphViewport, setGraphViewport] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -1186,6 +1246,87 @@ function App() {
     return sorted;
   }, [browseFromDate, browseQuery, browseSort, browseSource, browseToDate, notes]);
 
+  useEffect(() => {
+    if (filteredBrowseNotes.length === 0) {
+      if (browseActiveIndex !== 0) {
+        setBrowseActiveIndex(0);
+      }
+      return;
+    }
+    setBrowseActiveIndex((current) => wrapIndex(current, filteredBrowseNotes.length));
+  }, [browseActiveIndex, filteredBrowseNotes.length]);
+
+  useEffect(() => {
+    if (workspacePage !== "explore") {
+      return;
+    }
+
+    const stage = browseStackStageRef.current;
+    if (!stage) {
+      return;
+    }
+
+    const updateWidth = () => {
+      const width = Math.floor(stage.getBoundingClientRect().width);
+      if (width > 0) {
+        setBrowseStackStageWidth(width);
+      }
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateWidth);
+      return () => window.removeEventListener("resize", updateWidth);
+    }
+
+    const observer = new ResizeObserver(() => updateWidth());
+    observer.observe(stage);
+
+    return () => observer.disconnect();
+  }, [workspacePage]);
+
+  const browseStackCardWidth = useMemo(() => {
+    if (browseStackStageWidth <= 0) {
+      return 520;
+    }
+    return Math.max(260, Math.min(520, Math.floor(browseStackStageWidth * 0.78)));
+  }, [browseStackStageWidth]);
+
+  const browseStackCardHeight = useMemo(
+    () => Math.max(220, Math.min(320, Math.round(browseStackCardWidth * 0.62))),
+    [browseStackCardWidth],
+  );
+
+  const browseStackMaxVisible = browseStackStageWidth > 0 && browseStackStageWidth < 760 ? 3 : 7;
+  const browseStackMaxOffset = Math.max(0, Math.floor(browseStackMaxVisible / 2));
+  const browseStackCardSpacing = Math.max(12, Math.round(browseStackCardWidth * (1 - 0.48)));
+  const browseStackStepDeg = browseStackMaxOffset > 0 ? 48 / browseStackMaxOffset : 0;
+  const browseStackStageHeight = Math.max(380, browseStackCardHeight + 82);
+
+  const handleBrowseStackPrev = () => {
+    if (filteredBrowseNotes.length === 0) {
+      return;
+    }
+    setBrowseActiveIndex((current) => wrapIndex(current - 1, filteredBrowseNotes.length));
+  };
+
+  const handleBrowseStackNext = () => {
+    if (filteredBrowseNotes.length === 0) {
+      return;
+    }
+    setBrowseActiveIndex((current) => wrapIndex(current + 1, filteredBrowseNotes.length));
+  };
+
+  const handleBrowseStackKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowLeft") {
+      handleBrowseStackPrev();
+    }
+    if (event.key === "ArrowRight") {
+      handleBrowseStackNext();
+    }
+  };
+
   const loadWorkspace = async (accessToken: string) => {
     const [loadedNotes, loadedDashboard, loadedGraph, loadedProfile, loadedTemplates] = await Promise.all([
       fetchNotes(accessToken),
@@ -1974,6 +2115,14 @@ function App() {
     );
   };
 
+  const handleGraph3DRuntimeError = (error: Error) => {
+    const reason = error.message?.trim() || "WebGL context could not be created for 3D graph.";
+    setGraph3DRuntimeError(reason);
+    setGraphMode("2d");
+    setGraph3DRetryNonce((current) => current + 1);
+    setStatus("3D view failed in this browser session. Switched to 2D view.");
+  };
+
   const ForceGraph3DComponent = forceGraph3D;
   const ForceGraph2DComponent = forceGraph2D;
   const has3DRenderer = Boolean(ForceGraph3DComponent);
@@ -2042,8 +2191,19 @@ function App() {
       return;
     }
 
+    if (mode === "3d" && graph3DRuntimeError) {
+      setGraph3DRuntimeError(null);
+      setGraph3DRetryNonce((current) => current + 1);
+    }
+
     setGraphMode(mode);
-    setStatus(mode === "3d" ? "Graph mode set to 3D." : "Graph mode set to 2D.");
+    setStatus(
+      mode === "3d"
+        ? graph3DRuntimeError
+          ? "Retrying 3D view..."
+          : "Graph mode set to 3D."
+        : "Graph mode set to 2D.",
+    );
   };
 
   const handleCenterGraph = () => {
@@ -3033,49 +3193,173 @@ function App() {
 
                 <p className="muted">Showing {filteredBrowseNotes.length} of {notes.length} notes.</p>
 
-                <div className="browse-notes-grid">
-                  {filteredBrowseNotes.length === 0 && <p className="muted">No notes match current filters.</p>}
-                  {filteredBrowseNotes.map((note, index) => (
-                    <motion.div
-                      key={note.id}
-                      initial={{ opacity: 0, y: 14 }}
-                      whileInView={{ opacity: 1, y: 0 }}
-                      viewport={{ once: false, amount: 0.12 }}
-                      transition={{ duration: 0.34, ease: "easeOut", delay: (index % 3) * 0.02 }}
+                {filteredBrowseNotes.length === 0 ? (
+                  <p className="muted">No notes match current filters.</p>
+                ) : (
+                  <div
+                    className={browseStackHovering ? "browse-stack-shell hovering" : "browse-stack-shell"}
+                    onMouseEnter={() => setBrowseStackHovering(true)}
+                    onMouseLeave={() => setBrowseStackHovering(false)}
+                  >
+                    <div
+                      className="browse-stack-stage"
+                      style={{ height: browseStackStageHeight }}
+                      ref={browseStackStageRef}
+                      tabIndex={0}
+                      onKeyDown={handleBrowseStackKeyDown}
+                      aria-label="Browse notes card stack"
                     >
-                      <TiltCard className="browse-note-card-tilt" maxRotation={6}>
-                        <article className="browse-note-card">
-                          <div className="browse-note-head-row">
-                            <span className="browse-note-icon" aria-hidden="true">{note.icon_emoji || "📝"}</span>
-                            <div className="browse-note-meta-row">
-                              <span className="note-date-badge">{new Date(note.updated_at).toLocaleDateString()}</span>
-                              <span className="note-source-badge">{sourceBadgeLabel(note.source_type)}</span>
-                            </div>
-                          </div>
+                      <div className="browse-stack-glow-top" aria-hidden="true" />
+                      <div className="browse-stack-glow-bottom" aria-hidden="true" />
 
-                          <h3 className="browse-note-title">{note.title}</h3>
-                          <p className="browse-note-excerpt">{truncateText(note.content, 220)}</p>
+                      <div className="browse-stack-plane" style={{ perspective: "1100px" }}>
+                        <AnimatePresence initial={false}>
+                          {filteredBrowseNotes.map((note, index) => {
+                            const offset = signedOffset(index, browseActiveIndex, filteredBrowseNotes.length, true);
+                            const absOffset = Math.abs(offset);
+                            if (absOffset > browseStackMaxOffset) {
+                              return null;
+                            }
 
-                          {note.source_ref && <p className="browse-note-source-ref">{truncateText(note.source_ref, 72)}</p>}
+                            const isActive = offset === 0;
+                            const rotateZ = offset * browseStackStepDeg;
+                            const x = offset * browseStackCardSpacing;
+                            const y = absOffset * 10;
+                            const z = -absOffset * 140;
+                            const scale = isActive ? 1.03 : 0.94;
+                            const lift = isActive ? -22 : 0;
+                            const rotateX = isActive ? 0 : 12;
 
-                          <div className="browse-note-footer-row">
-                            <small className="browse-note-updated-at">{new Date(note.updated_at).toLocaleString()}</small>
-                          </div>
+                            const dragProps = isActive
+                              ? {
+                                  drag: "x" as const,
+                                  dragConstraints: { left: 0, right: 0 },
+                                  dragElastic: 0.18,
+                                  onDragEnd: (
+                                    _event: any,
+                                    info: { offset: { x: number }; velocity: { x: number } },
+                                  ) => {
+                                    if (reduceMotion) {
+                                      return;
+                                    }
+                                    const travel = info.offset.x;
+                                    const velocity = info.velocity.x;
+                                    const threshold = Math.min(160, browseStackCardWidth * 0.22);
 
+                                    if (travel > threshold || velocity > 650) {
+                                      handleBrowseStackPrev();
+                                      return;
+                                    }
+
+                                    if (travel < -threshold || velocity < -650) {
+                                      handleBrowseStackNext();
+                                    }
+                                  },
+                                }
+                              : {};
+
+                            return (
+                              <motion.div
+                                key={note.id}
+                                className={isActive ? "browse-stack-card-frame active" : "browse-stack-card-frame"}
+                                style={{
+                                  width: browseStackCardWidth,
+                                  height: browseStackCardHeight,
+                                  zIndex: 100 - absOffset,
+                                  transformStyle: "preserve-3d",
+                                }}
+                                initial={
+                                  reduceMotion
+                                    ? false
+                                    : {
+                                        opacity: 0,
+                                        y: y + 40,
+                                        x,
+                                        rotateZ,
+                                        rotateX,
+                                        scale,
+                                      }
+                                }
+                                animate={{
+                                  opacity: 1,
+                                  x,
+                                  y: y + lift,
+                                  rotateZ,
+                                  rotateX,
+                                  scale,
+                                }}
+                                transition={{ type: "spring", stiffness: 280, damping: 28 }}
+                                onClick={() => setBrowseActiveIndex(index)}
+                                {...dragProps}
+                              >
+                                <div
+                                  className="h-full w-full"
+                                  style={{
+                                    transform: `translateZ(${z}px)`,
+                                    transformStyle: "preserve-3d",
+                                  }}
+                                >
+                                  <article className="browse-note-card">
+                                    <div className="browse-note-head-row">
+                                      <span className="browse-note-icon" aria-hidden="true">{note.icon_emoji || "📝"}</span>
+                                      <div className="browse-note-meta-row">
+                                        <span className="note-date-badge">{new Date(note.updated_at).toLocaleDateString()}</span>
+                                        <span className="note-source-badge">{sourceBadgeLabel(note.source_type)}</span>
+                                      </div>
+                                    </div>
+
+                                    <h3 className="browse-note-title">{note.title}</h3>
+                                    <p className="browse-note-excerpt">{truncateText(note.content, 220)}</p>
+
+                                    {note.source_ref && <p className="browse-note-source-ref">{truncateText(note.source_ref, 72)}</p>}
+
+                                    <div className="browse-note-footer-row">
+                                      <small className="browse-note-updated-at">{new Date(note.updated_at).toLocaleString()}</small>
+                                    </div>
+
+                                    <button
+                                      type="button"
+                                      className="button-neutral"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        void openNoteForEditing(note.id);
+                                      }}
+                                    >
+                                      Open Note
+                                    </button>
+                                  </article>
+                                </div>
+                              </motion.div>
+                            );
+                          })}
+                        </AnimatePresence>
+                      </div>
+                    </div>
+
+                    <div className="browse-stack-dots-row">
+                      <div className="browse-stack-dot-group">
+                        {filteredBrowseNotes.map((note, index) => (
                           <button
+                            key={`dot-${note.id}`}
                             type="button"
-                            className="button-neutral"
-                            onClick={() => {
-                              void openNoteForEditing(note.id);
-                            }}
-                          >
-                            Open Note
-                          </button>
-                        </article>
-                      </TiltCard>
-                    </motion.div>
-                  ))}
-                </div>
+                            className={index === browseActiveIndex ? "browse-stack-dot active" : "browse-stack-dot"}
+                            onClick={() => setBrowseActiveIndex(index)}
+                            aria-label={`Show note ${note.title}`}
+                          />
+                        ))}
+                      </div>
+
+                      <div className="browse-stack-nav">
+                        <button type="button" className="button-neutral browse-stack-nav-button" onClick={handleBrowseStackPrev}>
+                          Prev
+                        </button>
+                        <button type="button" className="button-neutral browse-stack-nav-button" onClick={handleBrowseStackNext}>
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.section>
 
@@ -3211,6 +3495,11 @@ function App() {
                   style={{ height: "520px", maxWidth: "100%" }}
                   ref={graphStageRef}
                 >
+                  {graph3DRuntimeError && effectiveGraphMode !== "3d" && (
+                    <p className="muted graph-empty">
+                      3D runtime unavailable in this browser session. Continue in 2D or click 3D View to retry.
+                    </p>
+                  )}
                   <div className="relative w-full overflow-hidden graph-stage-frame" style={{ height: "100%", maxWidth: "100%" }}>
                     {graphSceneData.nodes.length === 0 ? (
                       <p className="muted graph-empty">No graph nodes to render. Load insights and create notes first.</p>
@@ -3251,32 +3540,42 @@ function App() {
                         </svg>
                       </div>
                     ) : effectiveGraphMode === "3d" && ForceGraph3DComponent ? (
-                      <ForceGraph3DComponent
-                        ref={graphRef}
-                        className="graph-renderer-element"
-                        graphData={graphSceneData}
-                        width={graphViewport.width}
-                        height={graphViewport.height}
-                        style={{ width: "100%", height: "100%", maxWidth: "100%", display: "block" }}
-                        linkDistance={graphLinkDistance}
-                        linkStrength={graphLinkStrength}
-                        d3AlphaDecay={0.04}
-                        d3VelocityDecay={0.36}
-                        nodeLabel={(node: object) => {
-                          const item = node as GraphNode3D;
-                          return `${item.title}\nSource: ${sourceTypeLabel(item.source_type)}\nTags: ${item.tags.join(", ") || "none"}`;
-                        }}
-                        nodeColor={(node: object) => (node as GraphNode3D).color}
-                        nodeVal={(node: object) => (node as GraphNode3D).val}
-                        linkColor={(link: object) => ((link as GraphLink3D).is_ai_generated ? "#2a8f86" : "#8a6d3b")}
-                        linkWidth={(link: object) => ((link as GraphLink3D).is_ai_generated ? 1.6 : 0.9)}
-                        linkDirectionalParticles={(link: object) => ((link as GraphLink3D).is_ai_generated ? 2 : 0)}
-                        linkDirectionalParticleWidth={1.4}
-                        linkDirectionalParticleSpeed={0.008}
-                        showNavInfo={false}
-                        onNodeClick={handleNodeClick}
-                        backgroundColor="rgba(0,0,0,0)"
-                      />
+                      <GraphRuntimeBoundary
+                        resetKey={`graph-3d-${graph3DRetryNonce}`}
+                        onError={handleGraph3DRuntimeError}
+                        fallback={
+                          <p className="muted graph-empty">
+                            {graph3DRuntimeError ? `3D unavailable: ${graph3DRuntimeError}` : "3D view unavailable. Switch to 2D or retry 3D."}
+                          </p>
+                        }
+                      >
+                        <ForceGraph3DComponent
+                          ref={graphRef}
+                          className="graph-renderer-element"
+                          graphData={graphSceneData}
+                          width={graphViewport.width}
+                          height={graphViewport.height}
+                          style={{ width: "100%", height: "100%", maxWidth: "100%", display: "block" }}
+                          linkDistance={graphLinkDistance}
+                          linkStrength={graphLinkStrength}
+                          d3AlphaDecay={0.04}
+                          d3VelocityDecay={0.36}
+                          nodeLabel={(node: object) => {
+                            const item = node as GraphNode3D;
+                            return `${item.title}\nSource: ${sourceTypeLabel(item.source_type)}\nTags: ${item.tags.join(", ") || "none"}`;
+                          }}
+                          nodeColor={(node: object) => (node as GraphNode3D).color}
+                          nodeVal={(node: object) => (node as GraphNode3D).val}
+                          linkColor={(link: object) => ((link as GraphLink3D).is_ai_generated ? "#2a8f86" : "#8a6d3b")}
+                          linkWidth={(link: object) => ((link as GraphLink3D).is_ai_generated ? 1.6 : 0.9)}
+                          linkDirectionalParticles={(link: object) => ((link as GraphLink3D).is_ai_generated ? 2 : 0)}
+                          linkDirectionalParticleWidth={1.4}
+                          linkDirectionalParticleSpeed={0.008}
+                          showNavInfo={false}
+                          onNodeClick={handleNodeClick}
+                          backgroundColor="rgba(0,0,0,0)"
+                        />
+                      </GraphRuntimeBoundary>
                     ) : effectiveGraphMode === "2d" && ForceGraph2DComponent ? (
                       <ForceGraph2DComponent
                         ref={graphRef}
