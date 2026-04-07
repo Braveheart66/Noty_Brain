@@ -116,7 +116,7 @@ type SoftwareGraph3DCanvasProps = {
   nodes: SoftwareGraphNode[];
   links: SoftwareGraphLink[];
   mode: GraphRenderMode;
-  preset: GraphVisualPreset;
+  preset?: GraphVisualPreset;
   selectedNodeId: string | null;
   resetNonce: number;
   reduceMotion: boolean;
@@ -300,6 +300,7 @@ function buildSimulationData(
   links: SoftwareGraphLink[],
   mode: GraphRenderMode,
   preset: GraphVisualPreset,
+  includeSyntheticLinks: boolean,
 ): SimulationData {
   if (nodes.length === 0) {
     return { nodes: [], links: [] };
@@ -411,10 +412,15 @@ function buildSimulationData(
     });
   });
 
-  if (simNodes.length <= 220 && tuning.extraNeighbors > 0) {
+  if (includeSyntheticLinks && simNodes.length <= 140 && tuning.extraNeighbors > 0) {
     for (let sourceIndex = 0; sourceIndex < simNodes.length; sourceIndex += 1) {
       const sourceNode = simNodes[sourceIndex];
-      const distances: Array<{ targetIndex: number; distance: number }> = [];
+      const picks = Math.min(tuning.extraNeighbors, simNodes.length - 1);
+      if (picks <= 0) {
+        continue;
+      }
+
+      const nearest: Array<{ targetIndex: number; distance: number }> = [];
 
       for (let targetIndex = 0; targetIndex < simNodes.length; targetIndex += 1) {
         if (sourceIndex === targetIndex) {
@@ -425,21 +431,34 @@ function buildSimulationData(
         const dx = sourceNode.baseX - targetNode.baseX;
         const dy = sourceNode.baseY - targetNode.baseY;
         const dz = sourceNode.baseZ - targetNode.baseZ;
-        distances.push({ targetIndex, distance: Math.hypot(dx, dy, dz) });
+        const distance = Math.hypot(dx, dy, dz);
+
+        if (nearest.length < picks) {
+          nearest.push({ targetIndex, distance });
+          continue;
+        }
+
+        let farthestIndex = 0;
+        for (let index = 1; index < nearest.length; index += 1) {
+          if (nearest[index].distance > nearest[farthestIndex].distance) {
+            farthestIndex = index;
+          }
+        }
+
+        if (distance < nearest[farthestIndex].distance) {
+          nearest[farthestIndex] = { targetIndex, distance };
+        }
       }
 
-      distances.sort((left, right) => left.distance - right.distance);
-      const picks = Math.min(tuning.extraNeighbors, distances.length);
-
-      for (let index = 0; index < picks; index += 1) {
-        const targetIndex = distances[index].targetIndex;
+      for (let index = 0; index < nearest.length; index += 1) {
+        const targetIndex = nearest[index].targetIndex;
         const key = sourceIndex < targetIndex ? `${sourceIndex}:${targetIndex}` : `${targetIndex}:${sourceIndex}`;
         if (edgeKeySet.has(key)) {
           continue;
         }
 
         edgeKeySet.add(key);
-        const similarity = clamp(0.2 + (1 - distances[index].distance / (sceneRadius * 2.4)) * 0.62, 0.1, 0.7);
+        const similarity = clamp(0.2 + (1 - nearest[index].distance / (sceneRadius * 2.4)) * 0.62, 0.1, 0.7);
 
         simLinks.push({
           sourceIndex,
@@ -531,7 +550,7 @@ function stepSimulation(
     }
   }
 
-  if (nodes.length <= 130) {
+  if (nodes.length <= 96) {
     for (let sourceIndex = 0; sourceIndex < nodes.length; sourceIndex += 1) {
       const source = nodes[sourceIndex];
       for (let targetIndex = sourceIndex + 1; targetIndex < nodes.length; targetIndex += 1) {
@@ -692,22 +711,6 @@ function unprojectForDrag(
   return { x: worldX, y: worldY, z: worldZ };
 }
 
-function sourceAccentRgb(sourceType: string, fallback: Rgb): Rgb {
-  if (sourceType === "manual") {
-    return [244, 250, 248];
-  }
-  if (sourceType === "url") {
-    return [96, 174, 164];
-  }
-  if (sourceType === "pdf") {
-    return [207, 128, 75];
-  }
-  if (sourceType === "text") {
-    return [104, 142, 210];
-  }
-  return fallback;
-}
-
 function traceQuadratic(
   ctx: CanvasRenderingContext2D,
   sx: number,
@@ -728,7 +731,7 @@ export function SoftwareGraph3DCanvas({
   nodes,
   links,
   mode,
-  preset,
+  preset = "cinematic",
   selectedNodeId,
   resetNonce,
   reduceMotion,
@@ -768,7 +771,22 @@ export function SoftwareGraph3DCanvas({
   }, [onNodeClick]);
 
   useEffect(() => {
-    simulationRef.current = buildSimulationData(nodes, links, mode, preset);
+    simulationRef.current = buildSimulationData(nodes, links, mode, preset, false);
+
+    if (nodes.length === 0) {
+      return;
+    }
+
+    const deferredId = window.setTimeout(() => {
+      if (nodes.length > 140) {
+        return;
+      }
+      simulationRef.current = buildSimulationData(nodes, links, mode, preset, true);
+    }, 40);
+
+    return () => {
+      window.clearTimeout(deferredId);
+    };
   }, [links, mode, nodes, preset]);
 
   useEffect(() => {
@@ -898,8 +916,11 @@ export function SoftwareGraph3DCanvas({
             synthetic: boolean;
             seed: number;
           } => Boolean(item),
-        )
-        .sort((left, right) => left.depth - right.depth);
+        );
+
+      if (activeMode === "3d") {
+        projectedLinks.sort((left, right) => left.depth - right.depth);
+      }
 
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -974,61 +995,46 @@ export function SoftwareGraph3DCanvas({
       }
 
       const selectedId = selectedNodeRef.current;
-      const nodesToDraw = [...projectedNodes].sort((left, right) => left.depth - right.depth);
+      const nodesToDraw = activeMode === "3d" ? [...projectedNodes].sort((left, right) => left.depth - right.depth) : projectedNodes;
       const showAmbientLabels = nodesToDraw.length <= tuning.labelThreshold;
 
       for (let nodeIndex = 0; nodeIndex < nodesToDraw.length; nodeIndex += 1) {
         const node = nodesToDraw[nodeIndex];
-        const simNode = simulation.nodes[node.index];
         const isSelected = node.id === selectedId;
 
         const depthFactor = activeMode === "3d" ? clamp((node.depth + 560) / 1120, 0.2, 1) : 1;
-        const nodeAlpha = activeMode === "3d" ? clamp(tuning.nodeAlpha3D * depthFactor, 0.2, 0.88) : tuning.nodeAlpha2D;
-        const glowStrength = (isSelected ? tuning.glowStrength * 1.55 : tuning.glowStrength) * depthFactor;
+        const nodeAlpha =
+          activeMode === "3d"
+            ? clamp(0.28 + depthFactor * 0.12, 0.26, 0.44)
+            : tuning.nodeAlpha2D;
 
-        ctx.shadowBlur = glowStrength;
-        ctx.shadowColor = rgbaFromRgb(node.colorRgb, activeMode === "3d" ? 0.58 : 0.42);
         ctx.fillStyle = rgbaFromRgb(node.colorRgb, nodeAlpha);
         ctx.beginPath();
         ctx.arc(node.screenX, node.screenY, node.radius, 0, Math.PI * 2);
         ctx.fill();
-        ctx.shadowBlur = 0;
 
-        ctx.fillStyle = "rgba(255, 255, 255, 0.24)";
+        const outlineAlpha =
+          activeMode === "3d"
+            ? clamp(0.78 + depthFactor * 0.22 + (isSelected ? 0.08 : 0), 0.74, 0.98)
+            : isSelected
+              ? 0.88
+              : 0.56;
+        const outlineWidth =
+          activeMode === "3d"
+            ? clamp(node.radius * 0.24 + (isSelected ? 0.9 : 0), 1.9, 4.8)
+            : isSelected
+              ? 2.2
+              : 1.2;
+
+        ctx.strokeStyle = rgbaFromRgb(node.colorRgb, outlineAlpha);
+        ctx.lineWidth = outlineWidth;
         ctx.beginPath();
-        ctx.arc(
-          node.screenX - node.radius * 0.3,
-          node.screenY - node.radius * 0.32,
-          Math.max(1.2, node.radius * 0.34),
-          0,
-          Math.PI * 2,
-        );
-        ctx.fill();
-
-        const accentRgb = sourceAccentRgb(node.sourceType, node.colorRgb);
-        const orbitAngle = now * 0.0016 * tuning.orbitSpeed + simNode.seed;
-        const orbitRadius = node.radius * (activeMode === "3d" ? 0.68 : 0.56);
-        const orbitX = node.screenX + Math.cos(orbitAngle) * orbitRadius;
-        const orbitY = node.screenY + Math.sin(orbitAngle) * orbitRadius;
-
-        ctx.fillStyle = rgbaFromRgb(accentRgb, activeMode === "3d" ? 0.88 * depthFactor : 0.85);
-        ctx.beginPath();
-        ctx.arc(orbitX, orbitY, Math.max(1.1, node.radius * 0.16), 0, Math.PI * 2);
-        ctx.fill();
-
-        if (node.sourceType !== "manual") {
-          ctx.strokeStyle = rgbaFromRgb(accentRgb, activeMode === "3d" ? 0.44 : 0.36);
-          ctx.lineWidth = 1;
-          ctx.setLineDash([2, 2]);
-          ctx.beginPath();
-          ctx.arc(node.screenX, node.screenY, node.radius + 2.2, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
+        ctx.arc(node.screenX, node.screenY, node.radius, 0, Math.PI * 2);
+        ctx.stroke();
 
         if (isSelected) {
           ctx.strokeStyle = "rgba(18, 34, 29, 0.82)";
-          ctx.lineWidth = 2.2;
+          ctx.lineWidth = activeMode === "3d" ? 2.8 : 2.2;
           ctx.beginPath();
           ctx.arc(node.screenX, node.screenY, node.radius + 3.6, 0, Math.PI * 2);
           ctx.stroke();

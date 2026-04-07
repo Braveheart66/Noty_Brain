@@ -62,16 +62,9 @@ const CLUSTER_PALETTE = [
 
 type EdgeViewMode = "all" | "ai" | "manual";
 type GraphRenderMode = "3d" | "2d";
-type GraphVisualPreset = "cinematic" | "clean-minimal" | "dense-network";
 type WorkspacePage = "home" | "capture" | "explore" | "graph";
 type AuthMode = "register" | "login";
 type BrowseSource = "all" | "notes" | "imports";
-
-const GRAPH_VISUAL_PRESET_OPTIONS: Array<{ id: GraphVisualPreset; label: string }> = [
-  { id: "cinematic", label: "Cinematic" },
-  { id: "clean-minimal", label: "Clean Minimal" },
-  { id: "dense-network", label: "Dense Network" },
-];
 
 type LoginFormState = {
   email: string;
@@ -351,7 +344,6 @@ function App() {
   const [clusters, setClusters] = useState<ClusterPayload | null>(null);
   const [edgeView, setEdgeView] = useState<EdgeViewMode>("all");
   const [graphMode, setGraphMode] = useState<GraphRenderMode>("2d");
-  const [graphVisualPreset, setGraphVisualPreset] = useState<GraphVisualPreset>("cinematic");
   const [softwareGraphViewResetNonce, setSoftwareGraphViewResetNonce] = useState(0);
   const [nodeSearch, setNodeSearch] = useState("");
   const [focusNodeId, setFocusNodeId] = useState("");
@@ -1929,16 +1921,6 @@ function App() {
     setStatus("Software 2D mode active.");
   };
 
-  const handleGraphVisualPresetChange = (preset: GraphVisualPreset) => {
-    if (preset === graphVisualPreset) {
-      return;
-    }
-
-    setGraphVisualPreset(preset);
-    setSoftwareGraphViewResetNonce((current) => current + 1);
-    setStatus(`Graph visual preset set to ${preset}.`);
-  };
-
   const handleCenterGraph = () => {
     setSoftwareGraphViewResetNonce((current) => current + 1);
     setStatus(effectiveGraphMode === "3d" ? "Software 3D camera recentered." : "Software 2D camera recentered.");
@@ -2150,8 +2132,6 @@ function App() {
 
   /* ──────────────────── HOME PAGE ──────────────────── */
   if (workspacePage === "home") {
-    const recentNotes = notes.slice(0, 6);
-
     return (
       <div className="shell workspace-shell single-page-scroll">
         <AnimatedNavFramer onNavigate={navigateTo} currentPage={workspacePage} />
@@ -2310,32 +2290,6 @@ function App() {
                 Sign Out
               </button>
             </div>
-
-            {recentNotes.length > 0 && (
-              <div className="welcome-recent-grid">
-                {recentNotes.map((note) => (
-                  <TiltCard key={note.id} className="welcome-note-card-tilt">
-                    <button
-                      type="button"
-                      className="welcome-note-card"
-                      onClick={() => {
-                        void openNoteForEditing(note.id);
-                      }}
-                    >
-                      <span className="welcome-note-emoji">
-                        {note.icon_emoji || "📝"}
-                      </span>
-                      <strong className="welcome-note-title">
-                        {note.title}
-                      </strong>
-                      <small className="welcome-note-date">
-                        {new Date(note.updated_at).toLocaleDateString()}
-                      </small>
-                    </button>
-                  </TiltCard>
-                ))}
-              </div>
-            )}
           </div>
         </section>
 
@@ -3117,42 +3071,27 @@ function App() {
               transition={inViewTransition}
             >
               <div className="flow-inner">
-                <div className="graph-view-control-row">
-                  <div className="graph-view-tabs" role="tablist" aria-label="Graph view tabs">
-                    <button
-                      type="button"
-                      className={effectiveGraphMode === "2d" ? "graph-view-tab-button active" : "graph-view-tab-button"}
-                      onClick={() => handleToggleGraphMode("2d")}
-                    >
-                      {effectiveGraphMode === "2d" && <motion.span layoutId="graph-view-underline" className="graph-view-underline" />}
-                      <span className={effectiveGraphMode === "2d" ? "graph-view-tab-label active-label" : "graph-view-tab-label"}>
-                        2D View
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      className={effectiveGraphMode === "3d" ? "graph-view-tab-button active" : "graph-view-tab-button"}
-                      onClick={() => handleToggleGraphMode("3d")}
-                    >
-                      {effectiveGraphMode === "3d" && <motion.span layoutId="graph-view-underline" className="graph-view-underline" />}
-                      <span className={effectiveGraphMode === "3d" ? "graph-view-tab-label active-label" : "graph-view-tab-label"}>
-                        3D View
-                      </span>
-                    </button>
-                  </div>
-
-                  <div className="graph-preset-tabs" role="tablist" aria-label="Graph visual preset">
-                    {GRAPH_VISUAL_PRESET_OPTIONS.map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        className={graphVisualPreset === option.id ? "graph-preset-tab active" : "graph-preset-tab"}
-                        onClick={() => handleGraphVisualPresetChange(option.id)}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
+                <div className="graph-view-tabs" role="tablist" aria-label="Graph view tabs">
+                  <button
+                    type="button"
+                    className={effectiveGraphMode === "2d" ? "graph-view-tab-button active" : "graph-view-tab-button"}
+                    onClick={() => handleToggleGraphMode("2d")}
+                  >
+                    {effectiveGraphMode === "2d" && <motion.span layoutId="graph-view-underline" className="graph-view-underline" />}
+                    <span className={effectiveGraphMode === "2d" ? "graph-view-tab-label active-label" : "graph-view-tab-label"}>
+                      2D View
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={effectiveGraphMode === "3d" ? "graph-view-tab-button active" : "graph-view-tab-button"}
+                    onClick={() => handleToggleGraphMode("3d")}
+                  >
+                    {effectiveGraphMode === "3d" && <motion.span layoutId="graph-view-underline" className="graph-view-underline" />}
+                    <span className={effectiveGraphMode === "3d" ? "graph-view-tab-label active-label" : "graph-view-tab-label"}>
+                      3D View
+                    </span>
+                  </button>
                 </div>
               </div>
             </motion.section>
@@ -3236,7 +3175,6 @@ function App() {
                         nodes={softwareGraphData.nodes}
                         links={softwareGraphData.links}
                         mode={effectiveGraphMode}
-                        preset={graphVisualPreset}
                         selectedNodeId={selectedNodeId}
                         resetNonce={softwareGraphViewResetNonce}
                         reduceMotion={Boolean(reduceMotion)}
