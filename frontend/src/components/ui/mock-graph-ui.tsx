@@ -1,12 +1,12 @@
 import { motion } from "framer-motion";
 
 const NODES = [
-  { id: "a", cx: 120, cy: 80, r: 14, color: "#1f7a63", label: "Strategy" },
-  { id: "b", cx: 260, cy: 60, r: 11, color: "#0f6ba8", label: "Research" },
-  { id: "c", cx: 200, cy: 180, r: 16, color: "#2a8f86", label: "Graph Lab" },
-  { id: "d", cx: 340, cy: 150, r: 12, color: "#a03f75", label: "Design" },
-  { id: "e", cx: 80, cy: 200, r: 10, color: "#cb5a2f", label: "Roadmap" },
-  { id: "f", cx: 310, cy: 250, r: 13, color: "#3653b8", label: "AI Search" },
+  { id: "a", cx: 120, cy: 80, r: 14, color: "var(--accent)", label: "Strategy" },
+  { id: "b", cx: 260, cy: 60, r: 11, color: "var(--ai-link)", label: "Research" },
+  { id: "c", cx: 200, cy: 180, r: 16, color: "var(--accent-strong)", label: "Graph Lab" },
+  { id: "d", cx: 340, cy: 150, r: 12, color: "var(--manual-link)", label: "Design" },
+  { id: "e", cx: 80, cy: 200, r: 10, color: "var(--ai-link)", label: "Roadmap" },
+  { id: "f", cx: 310, cy: 250, r: 13, color: "var(--accent)", label: "AI Search" },
 ];
 
 const EDGES = [
@@ -36,7 +36,7 @@ export function MockGraphUI() {
               y1={s.cy}
               x2={t.cx}
               y2={t.cy}
-              stroke="rgba(31,122,99,0.3)"
+              stroke="var(--line)"
               strokeWidth={1.5}
               initial={{ pathLength: 0, opacity: 0 }}
               animate={{ pathLength: 1, opacity: 1 }}

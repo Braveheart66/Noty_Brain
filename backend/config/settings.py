@@ -201,11 +201,15 @@ SIMPLE_JWT = {
 }
 
 CORS_ALLOWED_ORIGINS = _split_csv_env(
-    "CORS_ALLOWED_ORIGINS", "http://localhost:5173", strip_trailing_slash=True
+    "CORS_ALLOWED_ORIGINS",
+    "http://localhost:5173,http://localhost:5174",
+    strip_trailing_slash=True,
 )
 CORS_ALLOWED_ORIGIN_REGEXES = _split_csv_env("CORS_ALLOWED_ORIGIN_REGEXES", "")
 CSRF_TRUSTED_ORIGINS = _split_csv_env(
-    "CSRF_TRUSTED_ORIGINS", "http://localhost:5173", strip_trailing_slash=True
+    "CSRF_TRUSTED_ORIGINS",
+    "http://localhost:5173,http://localhost:5174",
+    strip_trailing_slash=True,
 )
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")

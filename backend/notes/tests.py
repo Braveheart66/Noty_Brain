@@ -116,6 +116,39 @@ class NotesApiTests(APITestCase):
 		self.assertEqual(len(response.data), 1)
 		self.assertEqual(response.data[0]["title"], "Source")
 
+	def test_backlinks_prefers_manual_over_ai_for_same_source(self):
+		target = Note.objects.create(user=self.user, title="Target", content="Dest")
+		source = Note.objects.create(user=self.user, title="Source", content="Src")
+		NoteLink.objects.create(
+			source_note=source,
+			target_note=target,
+			relationship_type="semantic related",
+			is_ai_generated=True,
+			similarity_score=0.82,
+		)
+		NoteLink.objects.create(
+			source_note=source,
+			target_note=target,
+			relationship_type="references",
+			is_ai_generated=False,
+		)
+
+		response = self.client.get(f"/api/notes/{target.id}/backlinks/")
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(len(response.data), 1)
+		self.assertFalse(response.data[0]["is_ai_generated"])
+		self.assertEqual(response.data[0]["relationship_type"], "references")
+
+	def test_add_link_rejects_self_reference(self):
+		note = Note.objects.create(user=self.user, title="Self", content="Self")
+		response = self.client.post(
+			f"/api/notes/{note.id}/links/",
+			{"target_note": str(note.id), "relationship_type": "references"},
+			format="json",
+		)
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+		self.assertIn("detail", response.data)
+
 	def test_templates_endpoint_returns_builtin_templates(self):
 		response = self.client.get("/api/notes/templates/")
 		self.assertEqual(response.status_code, status.HTTP_200_OK)

@@ -33,15 +33,35 @@ class GraphView(APIView):
 			"is_ai_generated",
 			"similarity_score",
 		)
-		edge_payload = [
-			{
-				"id": str(link["id"]),
-				"source_note_id": str(link["source_note_id"]),
-				"target_note_id": str(link["target_note_id"]),
-				"relationship_type": link["relationship_type"],
-				"is_ai_generated": link["is_ai_generated"],
-				"similarity_score": link["similarity_score"],
-			}
-			for link in links
-		]
+		# Collapse mirrored links (A->B and B->A) into a single graph edge.
+		deduped_edges = {}
+		for link in links:
+			source_id = str(link["source_note_id"])
+			target_id = str(link["target_note_id"])
+			if source_id == target_id:
+				continue
+
+			left_id, right_id = sorted((source_id, target_id))
+			relationship_type = link["relationship_type"]
+			is_ai_generated = bool(link["is_ai_generated"])
+			key = (left_id, right_id, relationship_type, is_ai_generated)
+
+			score = link["similarity_score"]
+			existing = deduped_edges.get(key)
+			if existing is None:
+				deduped_edges[key] = {
+					"id": str(link["id"]),
+					"source_note_id": left_id,
+					"target_note_id": right_id,
+					"relationship_type": relationship_type,
+					"is_ai_generated": is_ai_generated,
+					"similarity_score": score,
+				}
+				continue
+
+			existing_score = existing["similarity_score"]
+			if score is not None and (existing_score is None or score > existing_score):
+				existing["similarity_score"] = score
+
+		edge_payload = list(deduped_edges.values())
 		return Response({"nodes": node_payload, "edges": edge_payload}, status=status.HTTP_200_OK)

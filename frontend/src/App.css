@@ -71,9 +71,28 @@ p {
 }
 
 .login-shell {
-  width: min(1100px, 94vw);
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
   position: relative;
-  min-height: calc(100vh - 4rem);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  isolation: isolate;
+  background: transparent;
+}
+
+.login-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -12;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(31, 122, 99, 0.16) 0%, rgba(31, 122, 99, 0) 46%),
+    radial-gradient(circle at 78% 86%, rgba(42, 143, 134, 0.1) 0%, rgba(42, 143, 134, 0) 52%),
+    linear-gradient(180deg, #f4f7f2 0%, #e3eee6 48%, #cfdfd3 100%);
 }
 
 .workspace-shell {
@@ -619,6 +638,79 @@ p {
   flex: 1 1 160px;
 }
 
+.filter-sort-trigger {
+  flex: 0 0 auto;
+  min-width: 138px;
+  white-space: nowrap;
+}
+
+.popover-content-shell {
+  z-index: 1200;
+  width: min(320px, calc(100vw - 1.5rem));
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(251, 255, 252, 0.98);
+  box-shadow: 0 18px 36px rgba(11, 40, 28, 0.16);
+  padding: 0.9rem;
+}
+
+.browse-filter-popover {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.browse-filter-panel-section {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.browse-filter-label {
+  margin: 0;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+}
+
+.browse-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.browse-filter-grid label {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.browse-filter-grid span {
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+.browse-sort-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.browse-sort-toggle button {
+  background: #e8f2ec;
+  border-color: #b8cec1;
+  color: #24443a;
+}
+
+.browse-sort-toggle button:hover {
+  background: #d9ebe1;
+  transform: none;
+}
+
+.browse-sort-toggle button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
 .date-range-inline {
   display: flex;
   flex-wrap: wrap;
@@ -640,7 +732,8 @@ p {
 }
 
 .browser-filters input,
-.browser-filters select {
+.browser-filters select,
+.filter-sort-trigger {
   background: rgba(255, 255, 255, 0.94);
 }
 
@@ -1236,43 +1329,117 @@ button:disabled {
   color: var(--ink-soft);
 }
 
-.login-bg-grid {
+.signin-surface-overlay {
   position: fixed;
   inset: 0;
+  z-index: 5;
   pointer-events: none;
-  background-image:
-    linear-gradient(rgba(32, 98, 80, 0.11) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(32, 98, 80, 0.11) 1px, transparent 1px);
-  background-size: 34px 34px;
-  opacity: 0.35;
-}
-
-.dotted-surface {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 78%, rgba(31, 122, 99, 0.035) 0%, rgba(31, 122, 99, 0) 56%),
+    linear-gradient(180deg, rgba(244, 247, 242, 0.16) 0%, rgba(228, 239, 231, 0.03) 46%, rgba(207, 223, 211, 0.12) 100%);
 }
 
 .login-stage {
   position: relative;
-  z-index: 1;
-  min-height: calc(100vh - 10rem);
-  display: grid;
-  place-items: center;
-  gap: 1rem;
+  z-index: 10;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.1rem;
+  padding: 1.2rem;
 }
 
 .login-intro {
   text-align: center;
   max-width: 760px;
+  color: var(--ink);
+}
+
+.login-intro .eyebrow {
+  color: var(--accent-strong);
+}
+
+.login-intro .subtitle {
+  color: var(--ink-soft);
 }
 
 .login-panel {
   width: min(520px, 94vw);
-  border: 1px solid rgba(168, 214, 197, 0.52);
-  box-shadow: 0 18px 40px rgba(17, 60, 46, 0.19);
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.94), rgba(232, 245, 238, 0.86));
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 1rem;
+  box-shadow: 0 20px 42px rgba(13, 35, 25, 0.18);
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: var(--ink);
+}
+
+.login-panel h2 {
+  color: var(--ink);
+}
+
+.login-panel .auth-switch-line {
+  color: var(--ink-soft);
+}
+
+.login-panel .text-link {
+  color: var(--accent-strong);
+}
+
+.login-panel .text-link:hover {
+  color: var(--accent);
+}
+
+.login-panel .segmented {
+  border-color: color-mix(in srgb, var(--line) 84%, transparent);
+  background: color-mix(in srgb, var(--panel) 90%, var(--bg-top) 10%);
+}
+
+.login-panel .segmented button {
+  color: var(--ink-soft);
+}
+
+.login-panel .segmented button.active {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.login-panel .floating-field input {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: color-mix(in srgb, var(--line) 86%, transparent);
+  color: var(--ink);
+}
+
+.login-panel .floating-field input:focus {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line) 55%);
+  box-shadow: 0 0 0 3px rgba(31, 122, 99, 0.14);
+}
+
+.login-panel .floating-field span {
+  color: var(--ink-soft);
+}
+
+.login-panel form > button[type="submit"] {
+  background: linear-gradient(135deg, #1f7a63, #135b4a);
+  border-color: #1f7a63;
+  box-shadow: 0 0 0 rgba(31, 122, 99, 0);
+}
+
+.login-panel form > button[type="submit"]:hover {
+  background: linear-gradient(135deg, #239372, #16735b);
+  box-shadow: 0 10px 22px rgba(31, 122, 99, 0.24);
+}
+
+.login-shell .status {
+  width: min(760px, 92vw);
+  margin: 0 auto 1rem;
+  border-color: color-mix(in srgb, var(--line) 82%, transparent);
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  color: var(--ink-soft);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .floating-field {
@@ -1363,6 +1530,7 @@ button:disabled {
   .workspace-body,
   .template-grid,
   .home-grid-cards,
+  .browse-filter-grid,
   .date-range-inline {
     grid-template-columns: 1fr;
   }

@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { motion, useScroll, useTransform, useMotionValueEvent } from "framer-motion";
+import { motion, useScroll, useTransform } from "framer-motion";
 import { cn } from "../../lib/utils";
+import { TiltCard } from "./tilt-card";
 
 type NavProps = {
   onNavigate?: (path: string) => void;
@@ -9,26 +9,19 @@ type NavProps = {
 
 export const AnimatedNavFramer = ({ onNavigate, currentPage = "home" }: NavProps) => {
   const { scrollY } = useScroll();
-  const [hidden, setHidden] = useState(false);
+  const isHome = currentPage === "home";
 
-  // Background opacity: transparent at top, solid after scroll
-  const bgOpacity = useTransform(scrollY, [0, 200], [0, 1]);
-
-  useMotionValueEvent(scrollY, "change", (latest: number) => {
-    const previous = scrollY.getPrevious() ?? 0;
-    if (latest > previous && latest > 150) {
-      setHidden(true);
-    } else {
-      setHidden(false);
-    }
-  });
+  const bgOpacity = useTransform(scrollY, [0, 180], [0, 1]);
+  const borderColor = useTransform(
+    scrollY,
+    [0, 180],
+    ["rgba(18, 34, 29, 0.04)", "rgba(18, 34, 29, 0.16)"]
+  );
 
   const tabs = [
-    { label: "Home", path: "/home" },
     { label: "Capture", path: "/capture" },
     { label: "Explore", path: "/explore" },
     { label: "Graph Lab", path: "/graph" },
-    { label: "Browse Notes", path: "/explore" },
   ];
 
   const handleTabClick = (path: string) => {
@@ -38,7 +31,6 @@ export const AnimatedNavFramer = ({ onNavigate, currentPage = "home" }: NavProps
   };
 
   const isActive = (tab: { label: string; path: string }) => {
-    if (tab.label === "Home") return currentPage === "home";
     if (tab.label === "Capture") return currentPage === "capture";
     if (tab.label === "Explore") return currentPage === "explore";
     if (tab.label === "Graph Lab") return currentPage === "graph";
@@ -47,41 +39,44 @@ export const AnimatedNavFramer = ({ onNavigate, currentPage = "home" }: NavProps
 
   return (
     <motion.nav
-      variants={{
-        visible: { y: 0 },
-        hidden: { y: "-100%" },
-      }}
-      animate={hidden ? "hidden" : "visible"}
-      transition={{ duration: 0.35, ease: "easeInOut" }}
-      className="nav-framer-root"
+      className={cn("nav-framer-root", isHome ? "nav-framer-home" : "nav-framer-solid")}
       style={{ zIndex: 100 }}
     >
       <motion.div
         className="nav-framer-bg"
-        style={{ opacity: bgOpacity }}
+        style={{
+          opacity: isHome ? bgOpacity : 1,
+          borderBottomColor: isHome ? borderColor : "rgba(18, 34, 29, 0.14)",
+        }}
       />
-      <ul className="nav-framer-list">
-        {tabs.map((tab) => (
-          <li key={tab.label}>
-            <button
-              onClick={() => handleTabClick(tab.path)}
-              className={cn(
-                "nav-framer-btn",
-                isActive(tab) && "nav-framer-btn-active"
-              )}
-            >
-              {isActive(tab) && (
-                <motion.div
-                  layoutId="active-nav-tab"
-                  className="nav-framer-pill"
-                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                />
-              )}
-              {tab.label}
-            </button>
-          </li>
-        ))}
-      </ul>
+      <div className="nav-framer-shell">
+        <button type="button" className="nav-framer-brand" onClick={() => handleTabClick("/")}>Noty Brain</button>
+
+        <ul className="nav-framer-list">
+          {tabs.map((tab) => (
+            <li key={tab.label} className="nav-framer-item">
+              <TiltCard className="nav-tab-card">
+                <button
+                  onClick={() => handleTabClick(tab.path)}
+                  className={cn(
+                    "nav-framer-btn",
+                    isActive(tab) && "nav-framer-btn-active"
+                  )}
+                >
+                  {isActive(tab) && (
+                    <motion.div
+                      layoutId="active-nav-tab"
+                      className="nav-framer-pill"
+                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                    />
+                  )}
+                  {tab.label}
+                </button>
+              </TiltCard>
+            </li>
+          ))}
+        </ul>
+      </div>
     </motion.nav>
   );
 };

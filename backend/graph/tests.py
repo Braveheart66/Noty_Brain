@@ -26,3 +26,12 @@ class GraphApiTests(APITestCase):
 		self.assertIn("edges", response.data)
 		self.assertGreaterEqual(len(response.data["nodes"]), 2)
 		self.assertGreaterEqual(len(response.data["edges"]), 1)
+
+	def test_graph_endpoint_deduplicates_mirrored_edges(self):
+		note_a = Note.objects.get(title="Node A", user=self.user)
+		note_b = Note.objects.get(title="Node B", user=self.user)
+		NoteLink.objects.create(source_note=note_b, target_note=note_a)
+
+		response = self.client.get("/api/graph/")
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(len(response.data["edges"]), 1)

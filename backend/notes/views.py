@@ -208,6 +208,9 @@ class NoteViewSet(viewsets.ModelViewSet):
 		if target_note.user_id != request.user.id:
 			return Response({"detail": "Target note not found."}, status=status.HTTP_404_NOT_FOUND)
 
+		if source_note.id == target_note.id:
+			return Response({"detail": "Cannot link a note to itself."}, status=status.HTTP_400_BAD_REQUEST)
+
 		link, _ = NoteLink.objects.get_or_create(
 			source_note=source_note,
 			target_note=target_note,
@@ -249,6 +252,24 @@ class NoteViewSet(viewsets.ModelViewSet):
 			.order_by("-created_at")
 		)
 
+		best_by_source_note: dict[str, NoteLink] = {}
+		for link in links:
+			source_note_id = str(link.source_note_id)
+			current = best_by_source_note.get(source_note_id)
+			if current is None:
+				best_by_source_note[source_note_id] = link
+				continue
+
+			if current.is_ai_generated and not link.is_ai_generated:
+				best_by_source_note[source_note_id] = link
+				continue
+
+			if current.is_ai_generated == link.is_ai_generated:
+				current_score = current.similarity_score if current.similarity_score is not None else -1
+				next_score = link.similarity_score if link.similarity_score is not None else -1
+				if next_score > current_score:
+					best_by_source_note[source_note_id] = link
+
 		payload = [
 			{
 				"link_id": link.id,
@@ -260,7 +281,7 @@ class NoteViewSet(viewsets.ModelViewSet):
 				"source_type": link.source_note.source_type,
 				"updated_at": link.source_note.updated_at,
 			}
-			for link in links
+			for link in best_by_source_note.values()
 		]
 		return Response(BacklinkSerializer(payload, many=True).data, status=status.HTTP_200_OK)
 

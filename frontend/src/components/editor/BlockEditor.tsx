@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -35,6 +35,16 @@ export function BlockEditor({
 }: BlockEditorProps) {
   const [slashQuery, setSlashQuery] = useState("");
   const [backlinkQuery, setBacklinkQuery] = useState("");
+  const onUpdateRef = useRef(onUpdate);
+  const onBacklinkSelectRef = useRef(onBacklinkSelect);
+
+  useEffect(() => {
+    onUpdateRef.current = onUpdate;
+  }, [onUpdate]);
+
+  useEffect(() => {
+    onBacklinkSelectRef.current = onBacklinkSelect;
+  }, [onBacklinkSelect]);
 
   const editor = useEditor({
     extensions: [
@@ -50,7 +60,7 @@ export function BlockEditor({
     },
     onUpdate: ({ editor: activeEditor }) => {
       const json = activeEditor.getJSON();
-      onUpdate({
+      onUpdateRef.current({
         json,
         text: jsonToPlainText(json),
       });
@@ -177,8 +187,9 @@ export function BlockEditor({
 
     setBacklinkQuery("");
 
-    if (onBacklinkSelect) {
-      await onBacklinkSelect(note.id);
+    const backlinkSelectHandler = onBacklinkSelectRef.current;
+    if (backlinkSelectHandler) {
+      await backlinkSelectHandler(note.id);
     }
   };
 
