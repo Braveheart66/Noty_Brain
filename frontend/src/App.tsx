@@ -2134,7 +2134,8 @@ function App() {
   const has3DRenderer = Boolean(ForceGraph3DComponent);
   const has2DRenderer = Boolean(ForceGraph2DComponent);
   const effectiveGraphMode: GraphRenderMode = graphMode;
-  const usingSoftware3D = effectiveGraphMode === "3d" && (!has3DRenderer || graph3DRuntimeError !== null);
+  const shouldUseSoftware3D = !has3DRenderer || graph3DRuntimeError !== null;
+  const usingSoftware3D = effectiveGraphMode === "3d" && shouldUseSoftware3D;
 
   const resetSemanticOutput = () => {
     setSearchResults([]);
@@ -2190,7 +2191,7 @@ function App() {
   const handleToggleGraphMode = (mode: GraphRenderMode) => {
     if (mode === "3d") {
       setGraphMode("3d");
-      setStatus(usingSoftware3D ? "Software 3D mode active." : "Graph mode set to 3D.");
+      setStatus(shouldUseSoftware3D ? "Software 3D mode active." : "Graph mode set to 3D.");
       return;
     }
 
