@@ -72,6 +72,10 @@ type SceneState = {
   zoom: number;
   panX: number;
   panY: number;
+  pivotX: number;
+  pivotY: number;
+  pivotZ: number;
+  pivotNodeId: string | null;
   dragging: boolean;
   dragDistance: number;
   pointerX: number;
@@ -84,6 +88,7 @@ type SceneState = {
 type SimulationData = {
   nodes: SimNode[];
   links: SimLink[];
+  nodeIndexById: Map<string, number>;
 };
 
 type PresetTuning = {
@@ -269,6 +274,10 @@ function initialScene(mode: GraphRenderMode): SceneState {
       zoom: 1,
       panX: 0,
       panY: 0,
+      pivotX: 0,
+      pivotY: 0,
+      pivotZ: 0,
+      pivotNodeId: null,
       dragging: false,
       dragDistance: 0,
       pointerX: 0,
@@ -285,6 +294,10 @@ function initialScene(mode: GraphRenderMode): SceneState {
     zoom: 1,
     panX: 0,
     panY: 0,
+    pivotX: 0,
+    pivotY: 0,
+    pivotZ: 0,
+    pivotNodeId: null,
     dragging: false,
     dragDistance: 0,
     pointerX: 0,
@@ -303,7 +316,7 @@ function buildSimulationData(
   includeSyntheticLinks: boolean,
 ): SimulationData {
   if (nodes.length === 0) {
-    return { nodes: [], links: [] };
+    return { nodes: [], links: [], nodeIndexById: new Map() };
   }
 
   const tuning = PRESET_TUNING[preset];
@@ -472,7 +485,7 @@ function buildSimulationData(
     }
   }
 
-  return { nodes: simNodes, links: simLinks };
+  return { nodes: simNodes, links: simLinks, nodeIndexById: indexById };
 }
 
 function stepSimulation(
@@ -617,9 +630,19 @@ function projectNode(
   const centerX = width / 2 + scene.panX;
   const centerY = height / 2 + scene.panY;
 
-  let rotatedX = node.x;
-  let rotatedY = node.y;
-  let rotatedZ = node.z;
+  let worldX = node.x;
+  let worldY = node.y;
+  let worldZ = node.z;
+
+  if (mode === "3d") {
+    worldX -= scene.pivotX;
+    worldY -= scene.pivotY;
+    worldZ -= scene.pivotZ;
+  }
+
+  let rotatedX = worldX;
+  let rotatedY = worldY;
+  let rotatedZ = worldZ;
 
   if (mode === "3d") {
     const cosX = Math.cos(scene.angleX);
@@ -627,12 +650,12 @@ function projectNode(
     const cosY = Math.cos(scene.angleY);
     const sinY = Math.sin(scene.angleY);
 
-    const xRotY = node.x * cosY - node.z * sinY;
-    const zRotY = node.x * sinY + node.z * cosY;
+    const xRotY = worldX * cosY - worldZ * sinY;
+    const zRotY = worldX * sinY + worldZ * cosY;
 
     rotatedX = xRotY;
-    rotatedY = node.y * cosX - zRotY * sinX;
-    rotatedZ = node.y * sinX + zRotY * cosX;
+    rotatedY = worldY * cosX - zRotY * sinX;
+    rotatedZ = worldY * sinX + zRotY * cosX;
   } else {
     rotatedZ = 0;
   }
@@ -708,7 +731,11 @@ function unprojectForDrag(
   const worldX = rotatedX * cosY + zRotY * sinY;
   const worldZ = -rotatedX * sinY + zRotY * cosY;
 
-  return { x: worldX, y: worldY, z: worldZ };
+  return {
+    x: worldX + scene.pivotX,
+    y: worldY + scene.pivotY,
+    z: worldZ + scene.pivotZ,
+  };
 }
 
 function traceQuadratic(
@@ -739,9 +766,10 @@ export function SoftwareGraph3DCanvas({
 }: SoftwareGraph3DCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const projectedNodesRef = useRef<ProjectedNode[]>([]);
-  const simulationRef = useRef<SimulationData>({ nodes: [], links: [] });
+  const simulationRef = useRef<SimulationData>({ nodes: [], links: [], nodeIndexById: new Map() });
   const sceneStateRef = useRef<SceneState>(initialScene(mode));
   const animationRef = useRef<number | null>(null);
+  const hoveredNodeIdRef = useRef<string | null>(null);
 
   const modeRef = useRef<GraphRenderMode>(mode);
   const presetRef = useRef<GraphVisualPreset>(preset);
@@ -752,6 +780,7 @@ export function SoftwareGraph3DCanvas({
   useEffect(() => {
     modeRef.current = mode;
     sceneStateRef.current = initialScene(mode);
+    hoveredNodeIdRef.current = null;
   }, [mode]);
 
   useEffect(() => {
@@ -764,6 +793,13 @@ export function SoftwareGraph3DCanvas({
 
   useEffect(() => {
     selectedNodeRef.current = selectedNodeId;
+    if (!selectedNodeId) {
+      const scene = sceneStateRef.current;
+      scene.pivotNodeId = null;
+      scene.pivotX = 0;
+      scene.pivotY = 0;
+      scene.pivotZ = 0;
+    }
   }, [selectedNodeId]);
 
   useEffect(() => {
@@ -836,6 +872,16 @@ export function SoftwareGraph3DCanvas({
       const tuning = PRESET_TUNING[activePreset];
       const scene = sceneStateRef.current;
       const simulation = simulationRef.current;
+
+      if (activeMode === "3d" && scene.pivotNodeId) {
+        const pivotIndex = simulation.nodeIndexById.get(scene.pivotNodeId);
+        if (pivotIndex !== undefined) {
+          const pivotNode = simulation.nodes[pivotIndex];
+          scene.pivotX = pivotNode.x;
+          scene.pivotY = pivotNode.y;
+          scene.pivotZ = pivotNode.z;
+        }
+      }
 
       if (!scene.dragging && activeMode === "3d" && !reduceMotionRef.current) {
         scene.angleY += tuning.spinSpeed;
@@ -951,17 +997,17 @@ export function SoftwareGraph3DCanvas({
 
         if (activeMode === "3d") {
           const tubeWidth =
-            (0.95 + link.similarity * 1.62 + tuning.edgeTubeBoost + (link.isAi ? 0.4 : 0.16)) *
+            (1.02 + link.similarity * 1.68 + tuning.edgeTubeBoost + (link.isAi ? 0.42 : 0.18)) *
             depthFactor *
             (link.synthetic ? 0.82 : 1);
 
           ctx.strokeStyle = "rgba(9, 25, 20, 0.28)";
-          ctx.lineWidth = tubeWidth * 2.2;
+          ctx.lineWidth = tubeWidth * 2.34;
           traceQuadratic(ctx, link.source.screenX, link.source.screenY, controlX, controlY, link.target.screenX, link.target.screenY);
           ctx.stroke();
 
           ctx.strokeStyle = rgbaFromRgb(rgb, alpha);
-          ctx.lineWidth = tubeWidth * 1.26;
+          ctx.lineWidth = tubeWidth * 1.34;
           traceQuadratic(ctx, link.source.screenX, link.source.screenY, controlX, controlY, link.target.screenX, link.target.screenY);
           ctx.stroke();
 
@@ -995,6 +1041,7 @@ export function SoftwareGraph3DCanvas({
       }
 
       const selectedId = selectedNodeRef.current;
+      const hoveredId = hoveredNodeIdRef.current;
       const nodesToDraw = activeMode === "3d" ? [...projectedNodes].sort((left, right) => left.depth - right.depth) : projectedNodes;
       const showAmbientLabels = nodesToDraw.length <= tuning.labelThreshold;
 
@@ -1005,7 +1052,7 @@ export function SoftwareGraph3DCanvas({
         const depthFactor = activeMode === "3d" ? clamp((node.depth + 560) / 1120, 0.2, 1) : 1;
         const nodeAlpha =
           activeMode === "3d"
-            ? clamp(0.28 + depthFactor * 0.12, 0.26, 0.44)
+            ? clamp(tuning.nodeAlpha2D * (0.86 + depthFactor * 0.16), 0.74, 0.95)
             : tuning.nodeAlpha2D;
 
         ctx.fillStyle = rgbaFromRgb(node.colorRgb, nodeAlpha);
@@ -1015,13 +1062,13 @@ export function SoftwareGraph3DCanvas({
 
         const outlineAlpha =
           activeMode === "3d"
-            ? clamp(0.78 + depthFactor * 0.22 + (isSelected ? 0.08 : 0), 0.74, 0.98)
+            ? clamp(0.52 + depthFactor * 0.16 + (isSelected ? 0.06 : 0), 0.5, 0.74)
             : isSelected
               ? 0.88
               : 0.56;
         const outlineWidth =
           activeMode === "3d"
-            ? clamp(node.radius * 0.24 + (isSelected ? 0.9 : 0), 1.9, 4.8)
+            ? clamp(1.2 + depthFactor * 0.4 + (isSelected ? 0.2 : 0), 1.2, 2.1)
             : isSelected
               ? 2.2
               : 1.2;
@@ -1032,20 +1079,21 @@ export function SoftwareGraph3DCanvas({
         ctx.arc(node.screenX, node.screenY, node.radius, 0, Math.PI * 2);
         ctx.stroke();
 
-        if (isSelected) {
+        if (isSelected && activeMode !== "3d") {
           ctx.strokeStyle = "rgba(18, 34, 29, 0.82)";
-          ctx.lineWidth = activeMode === "3d" ? 2.8 : 2.2;
+          ctx.lineWidth = 2.2;
           ctx.beginPath();
           ctx.arc(node.screenX, node.screenY, node.radius + 3.6, 0, Math.PI * 2);
           ctx.stroke();
         }
 
-        if (isSelected || (showAmbientLabels && depthFactor > 0.78 && node.radius > 4.8)) {
+        const shouldShowHoverLabel = activeMode === "3d" && hoveredId === node.id;
+        if (isSelected || shouldShowHoverLabel || (showAmbientLabels && depthFactor > 0.78 && node.radius > 4.8)) {
           const title = node.title.length > 26 ? `${node.title.slice(0, 23)}...` : node.title;
-          ctx.font = isSelected ? "600 11px IBM Plex Mono" : "500 10px IBM Plex Mono";
+          ctx.font = isSelected || shouldShowHoverLabel ? "600 11px IBM Plex Mono" : "500 10px IBM Plex Mono";
           const textWidth = ctx.measureText(title).width;
-          const badgeWidth = textWidth + 10;
-          const badgeHeight = isSelected ? 18 : 16;
+          const badgeWidth = textWidth + (shouldShowHoverLabel ? 12 : 10);
+          const badgeHeight = isSelected || shouldShowHoverLabel ? 18 : 16;
           const badgeX = node.screenX - badgeWidth / 2;
           const badgeY = node.screenY - node.radius - badgeHeight - 6;
 
@@ -1072,6 +1120,25 @@ export function SoftwareGraph3DCanvas({
         x: event.clientX - rect.left,
         y: event.clientY - rect.top,
       };
+    };
+
+    const centerOnNode = (nodeId: string, nodeIndex: number) => {
+      const scene = sceneStateRef.current;
+      if (modeRef.current !== "3d") {
+        return;
+      }
+
+      const node = simulationRef.current.nodes[nodeIndex];
+      if (!node) {
+        return;
+      }
+
+      scene.pivotNodeId = nodeId;
+      scene.pivotX = node.x;
+      scene.pivotY = node.y;
+      scene.pivotZ = node.z;
+      scene.panX = 0;
+      scene.panY = 0;
     };
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -1109,6 +1176,12 @@ export function SoftwareGraph3DCanvas({
     const handlePointerMove = (event: PointerEvent) => {
       const scene = sceneStateRef.current;
       if (!scene.dragging) {
+        if (modeRef.current === "3d") {
+          const point = toCanvasPoint(event);
+          const pickedNode = pickNodeAt(projectedNodesRef.current, point.x, point.y);
+          hoveredNodeIdRef.current = pickedNode ? pickedNode.id : null;
+          canvas.style.cursor = pickedNode ? "pointer" : "grab";
+        }
         return;
       }
 
@@ -1195,6 +1268,8 @@ export function SoftwareGraph3DCanvas({
       const point = toCanvasPoint(event);
       const pickedNode = pickNodeAt(projectedNodesRef.current, point.x, point.y);
       if (pickedNode) {
+        centerOnNode(pickedNode.id, pickedNode.index);
+        hoveredNodeIdRef.current = pickedNode.id;
         onNodeClickRef.current(pickedNode.id);
       }
     };
@@ -1210,6 +1285,15 @@ export function SoftwareGraph3DCanvas({
 
       if (canvas.hasPointerCapture(event.pointerId)) {
         canvas.releasePointerCapture(event.pointerId);
+      }
+    };
+
+    const handlePointerLeave = () => {
+      if (modeRef.current === "3d") {
+        hoveredNodeIdRef.current = null;
+      }
+      if (!sceneStateRef.current.dragging) {
+        canvas.style.cursor = "grab";
       }
     };
 
@@ -1229,6 +1313,7 @@ export function SoftwareGraph3DCanvas({
     canvas.addEventListener("pointermove", handlePointerMove);
     canvas.addEventListener("pointerup", handlePointerUp);
     canvas.addEventListener("pointercancel", handlePointerCancel);
+    canvas.addEventListener("pointerleave", handlePointerLeave);
     canvas.addEventListener("wheel", handleWheel, { passive: false });
 
     return () => {
@@ -1238,6 +1323,7 @@ export function SoftwareGraph3DCanvas({
       canvas.removeEventListener("pointermove", handlePointerMove);
       canvas.removeEventListener("pointerup", handlePointerUp);
       canvas.removeEventListener("pointercancel", handlePointerCancel);
+      canvas.removeEventListener("pointerleave", handlePointerLeave);
       canvas.removeEventListener("wheel", handleWheel);
 
       if (animationRef.current !== null) {
