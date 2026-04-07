@@ -1279,21 +1279,8 @@
   margin-top: 0.45rem;
 }
 
-.graph-webgl-hint-row {
-  margin-bottom: 0.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.55rem;
-  flex-wrap: wrap;
-}
-
 .graph-soft3d-note {
-  margin: 0;
-}
-
-.graph-soft3d-retry {
-  white-space: nowrap;
+  margin: 0 0 0.5rem;
 }
 
 .browse-date-row {
@@ -1371,6 +1358,7 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  contain: layout paint;
 }
 
 .browse-stack-card-frame {
@@ -1382,6 +1370,8 @@
   cursor: pointer;
   box-shadow: 0 18px 36px rgba(13, 35, 25, 0.18);
   will-change: transform;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 .browse-stack-card-frame.active {
@@ -1417,6 +1407,12 @@
 
 .browse-stack-dot.active {
   background: color-mix(in srgb, var(--ink) 82%, transparent);
+}
+
+.browse-stack-ellipsis {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
 }
 
 .browse-stack-nav {

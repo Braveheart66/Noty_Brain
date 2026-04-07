@@ -1,5 +1,5 @@
-import { Component, useEffect, useMemo, useRef, useState } from "react";
-import type { ComponentType, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { JSONContent } from "@tiptap/react";
 import {
   addManualLink,
@@ -45,7 +45,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover
 import { MockCaptureUI } from "./components/ui/mock-capture-ui";
 import { MockExploreUI } from "./components/ui/mock-explore-ui";
 import { MockGraphUI } from "./components/ui/mock-graph-ui";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import "./App.css";
 import "./home-redesign-fixes.css";
 
@@ -64,7 +64,6 @@ type EdgeViewMode = "all" | "ai" | "manual";
 type GraphRenderMode = "3d" | "2d";
 type WorkspacePage = "home" | "capture" | "explore" | "graph";
 type AuthMode = "register" | "login";
-type GraphRenderer = ComponentType<any>;
 type BrowseSource = "all" | "notes" | "imports";
 
 type LoginFormState = {
@@ -100,19 +99,6 @@ type GraphLink3D = {
   similarity_score: number | null;
 };
 
-type FallbackNode = GraphNode3D & {
-  px: number;
-  py: number;
-  radius: number;
-};
-
-type FallbackLink = GraphLink3D & {
-  sx: number;
-  sy: number;
-  tx: number;
-  ty: number;
-};
-
 type DraftTemplatePayload = {
   title: string;
   icon: string;
@@ -123,42 +109,6 @@ type DraftTemplatePayload = {
 type HomeChipIconProps = {
   className?: string;
 };
-
-type GraphRuntimeBoundaryProps = {
-  children: ReactNode;
-  resetKey: string;
-  fallback: ReactNode;
-  onError: (error: Error) => void;
-};
-
-type GraphRuntimeBoundaryState = {
-  hasError: boolean;
-};
-
-class GraphRuntimeBoundary extends Component<GraphRuntimeBoundaryProps, GraphRuntimeBoundaryState> {
-  state: GraphRuntimeBoundaryState = { hasError: false };
-
-  static getDerivedStateFromError(): GraphRuntimeBoundaryState {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error: Error): void {
-    this.props.onError(error);
-  }
-
-  componentDidUpdate(prevProps: GraphRuntimeBoundaryProps): void {
-    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
-      this.setState({ hasError: false });
-    }
-  }
-
-  render(): ReactNode {
-    if (this.state.hasError) {
-      return this.props.fallback;
-    }
-    return this.props.children;
-  }
-}
 
 function BrainIcon({ className }: HomeChipIconProps) {
   return (
@@ -310,16 +260,6 @@ function hashString(text: string): number {
   return Math.abs(hash);
 }
 
-function linkEndpointId(endpoint: unknown): string {
-  if (typeof endpoint === "string") {
-    return endpoint;
-  }
-  if (endpoint && typeof endpoint === "object" && "id" in endpoint) {
-    return String((endpoint as { id: string }).id);
-  }
-  return "";
-}
-
 function resolveWorkspacePage(path: string): WorkspacePage {
   if (path === "/" || path.startsWith("/home")) {
     return "home";
@@ -398,19 +338,13 @@ function App() {
   const [browseSort, setBrowseSort] = useState<"updated_desc" | "updated_asc">("updated_desc");
   const [browseFilterOpen, setBrowseFilterOpen] = useState(false);
   const [browseActiveIndex, setBrowseActiveIndex] = useState(0);
-  const [browseStackHovering, setBrowseStackHovering] = useState(false);
 
   const [dashboard, setDashboard] = useState<DashboardStats | null>(null);
   const [graph, setGraph] = useState<GraphPayload | null>(null);
   const [clusters, setClusters] = useState<ClusterPayload | null>(null);
   const [edgeView, setEdgeView] = useState<EdgeViewMode>("all");
   const [graphMode, setGraphMode] = useState<GraphRenderMode>("2d");
-  const [forceGraph2D, setForceGraph2D] = useState<GraphRenderer | null>(null);
-  const [forceGraph3D, setForceGraph3D] = useState<GraphRenderer | null>(null);
-  const [graph3DRetryNonce, setGraph3DRetryNonce] = useState(0);
-  const [softwareGraph3DResetNonce, setSoftwareGraph3DResetNonce] = useState(0);
-  const [graph3DRuntimeError, setGraph3DRuntimeError] = useState<string | null>(null);
-  const [graphLibError, setGraphLibError] = useState<string | null>(null);
+  const [softwareGraphViewResetNonce, setSoftwareGraphViewResetNonce] = useState(0);
   const [nodeSearch, setNodeSearch] = useState("");
   const [focusNodeId, setFocusNodeId] = useState("");
   const [activeCluster, setActiveCluster] = useState<number | null>(null);
@@ -418,7 +352,6 @@ function App() {
   const [routePath, setRoutePath] = useState(() => window.location.pathname || "/login");
   const [shouldScrollToEditor, setShouldScrollToEditor] = useState(false);
 
-  const graphRef = useRef<any>(undefined);
   const graphStageRef = useRef<HTMLDivElement | null>(null);
   const signInWaveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
@@ -454,46 +387,6 @@ function App() {
       window.localStorage.removeItem("noty_refresh_token");
     }
   }, [refreshToken, token]);
-
-  useEffect(() => {
-    let disposed = false;
-
-    const loadGraphLibraries = async () => {
-      let threeError: string | null = null;
-      let twoError: string | null = null;
-
-      try {
-        const { default: ForceGraph3DModule } = await import("react-force-graph-3d");
-        if (!disposed) {
-          setForceGraph3D(() => ForceGraph3DModule as GraphRenderer);
-        }
-      } catch (error) {
-        threeError = error instanceof Error ? error.message : "unknown 3D error";
-      }
-
-      try {
-        const { default: ForceGraph2DModule } = await import("react-force-graph-2d");
-        if (!disposed) {
-          setForceGraph2D(() => ForceGraph2DModule as GraphRenderer);
-        }
-      } catch (error) {
-        twoError = error instanceof Error ? error.message : "unknown 2D error";
-      }
-
-      if (!disposed && threeError && twoError) {
-        setGraphLibError(
-          `Graph renderers failed to load (3D: ${threeError}; 2D: ${twoError}). Showing lightweight fallback graph.`,
-        );
-      } else if (!disposed) {
-        setGraphLibError(null);
-      }
-    };
-
-    loadGraphLibraries();
-    return () => {
-      disposed = true;
-    };
-  }, []);
 
   useEffect(() => {
     const isGraphRoute = resolveWorkspacePage(routePath) === "graph";
@@ -898,7 +791,7 @@ function App() {
         };
       });
 
-      const iterations = Math.min(240, 140 + clusterCount * 10);
+      const iterations = Math.min(120, 72 + clusterCount * 8);
       for (let step = 0; step < iterations; step += 1) {
         states.forEach((state, stateIndex) => {
           let fx = 0;
@@ -1049,160 +942,19 @@ function App() {
     }
   }, [focusNodeId, graph]);
 
-  const nodeClusterById = useMemo(() => {
-    const mapping = new Map<string, number>();
-    graphSceneData.nodes.forEach((node) => mapping.set(node.id, node.clusterIndex));
-    return mapping;
-  }, [graphSceneData.nodes]);
-
-  const graphLinkDistance = (linkObject: object): number => {
-    const link = linkObject as GraphLink3D & { source: unknown; target: unknown };
-    const sourceId = linkEndpointId(link.source);
-    const targetId = linkEndpointId(link.target);
-    const sourceCluster = nodeClusterById.get(sourceId);
-    const targetCluster = nodeClusterById.get(targetId);
-    const crossesCluster =
-      sourceCluster !== undefined && targetCluster !== undefined && sourceCluster !== targetCluster;
-
-    if (crossesCluster) {
-      const similarity =
-        typeof link.similarity_score === "number"
-          ? Math.max(0, Math.min(1, link.similarity_score))
-          : link.is_ai_generated
-            ? 0.55
-            : 0.35;
-
-      if (graphMode === "2d") {
-        return 210 - similarity * 90;
-      }
-      return 430 - similarity * 170;
-    }
-
-    if (graphMode === "2d") {
-      return link.is_ai_generated ? 74 : 96;
-    }
-
-    return link.is_ai_generated ? 84 : 118;
-  };
-
-  const graphLinkStrength = (linkObject: object): number => {
-    const link = linkObject as GraphLink3D & { source: unknown; target: unknown };
-    const sourceId = linkEndpointId(link.source);
-    const targetId = linkEndpointId(link.target);
-    const sourceCluster = nodeClusterById.get(sourceId);
-    const targetCluster = nodeClusterById.get(targetId);
-    const crossesCluster =
-      sourceCluster !== undefined && targetCluster !== undefined && sourceCluster !== targetCluster;
-
-    if (crossesCluster) {
-      const similarity =
-        typeof link.similarity_score === "number"
-          ? Math.max(0, Math.min(1, link.similarity_score))
-          : link.is_ai_generated
-            ? 0.55
-            : 0.35;
-
-      if (graphMode === "2d") {
-        return 0.015 + similarity * 0.045;
-      }
-      return 0.004 + similarity * 0.022;
-    }
-
-    if (graphMode === "2d") {
-      return link.is_ai_generated ? 0.13 : 0.17;
-    }
-
-    return link.is_ai_generated ? 0.06 : 0.11;
-  };
-
-  const graphSceneData2D = useMemo(() => {
-    const nodes: GraphNode3D[] = graphSceneData.nodes.map((node) => ({
+  const softwareGraphData = useMemo(() => {
+    const nodes = graphSceneData.nodes.map((node) => ({
       ...node,
-      x: typeof node.x === "number" ? node.x * 0.45 : undefined,
-      y: typeof node.y === "number" ? node.y * 0.45 : undefined,
-      z: undefined,
+      x: typeof node.x === "number" ? node.x : 0,
+      y: typeof node.y === "number" ? node.y : 0,
+      z: graphMode === "2d" ? 0 : typeof node.z === "number" ? node.z : 0,
     }));
 
     return {
       nodes,
       links: graphSceneData.links,
     };
-  }, [graphSceneData]);
-
-  const fallbackLayout = useMemo(() => {
-    const width = 980;
-    const height = 560;
-
-    if (graphSceneData.nodes.length === 0) {
-      return { width, height, nodes: [] as FallbackNode[], links: [] as FallbackLink[] };
-    }
-
-    const buckets = new Map<number, GraphNode3D[]>();
-    graphSceneData.nodes.forEach((node) => {
-      const key = node.clusterIndex;
-      const current = buckets.get(key) ?? [];
-      current.push(node);
-      buckets.set(key, current);
-    });
-
-    const clustersOrdered = [...buckets.entries()].sort((a, b) => a[0] - b[0]);
-    const clusterCount = clustersOrdered.length;
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const outerRadius = clusterCount > 1 ? Math.min(width, height) * 0.36 : 0;
-    const positionedNodes = new Map<string, FallbackNode>();
-
-    clustersOrdered.forEach(([clusterId, clusterNodes], clusterIndex) => {
-      const clusterSeed = hashString(`fallback-cluster-${clusterId}`);
-      const angle =
-        clusterCount === 1
-          ? 0
-          : (Math.PI * 2 * clusterIndex) / clusterCount + ((clusterSeed % 65) * Math.PI) / 300;
-      const radiusScale = 0.82 + (clusterSeed % 37) / 100;
-      const clusterCenterX = centerX + Math.cos(angle) * outerRadius * radiusScale;
-      const clusterCenterY = centerY + Math.sin(angle) * outerRadius * radiusScale;
-      const innerRadius = clusterNodes.length > 1 ? Math.max(36, Math.min(120, 20 + clusterNodes.length * 7)) : 0;
-
-      clusterNodes.forEach((node, nodeIndex) => {
-        const localAngle = clusterNodes.length === 1 ? 0 : (Math.PI * 2 * nodeIndex) / clusterNodes.length;
-        const ringMultiplier = Math.floor(nodeIndex / 14) * 0.4 + 1;
-        const nodeRadius = innerRadius * ringMultiplier;
-        const px = clusterCenterX + Math.cos(localAngle) * nodeRadius;
-        const py = clusterCenterY + Math.sin(localAngle) * nodeRadius;
-
-        positionedNodes.set(node.id, {
-          ...node,
-          px,
-          py,
-          radius: Math.max(7, Math.min(19, node.val * 1.5)),
-        });
-      });
-    });
-
-    const links = graphSceneData.links
-      .map((link) => {
-        const sourceNode = positionedNodes.get(link.source);
-        const targetNode = positionedNodes.get(link.target);
-        if (!sourceNode || !targetNode) {
-          return null;
-        }
-        return {
-          ...link,
-          sx: sourceNode.px,
-          sy: sourceNode.py,
-          tx: targetNode.px,
-          ty: targetNode.py,
-        };
-      })
-      .filter((item): item is FallbackLink => Boolean(item));
-
-    return {
-      width,
-      height,
-      nodes: [...positionedNodes.values()],
-      links,
-    };
-  }, [graphSceneData]);
+  }, [graphMode, graphSceneData]);
 
   const filteredBrowseNotes = useMemo(() => {
     const query = browseQuery.trim().toLowerCase();
@@ -1305,6 +1057,56 @@ function App() {
   const browseStackCardSpacing = Math.max(12, Math.round(browseStackCardWidth * (1 - 0.48)));
   const browseStackStepDeg = browseStackMaxOffset > 0 ? 48 / browseStackMaxOffset : 0;
   const browseStackStageHeight = Math.max(380, browseStackCardHeight + 82);
+
+  const browseStackVisibleCards = useMemo(() => {
+    if (filteredBrowseNotes.length === 0) {
+      return [] as Array<{ note: Note; index: number; offset: number; absOffset: number }>;
+    }
+
+    const visible: Array<{ note: Note; index: number; offset: number; absOffset: number }> = [];
+    for (let index = 0; index < filteredBrowseNotes.length; index += 1) {
+      const offset = signedOffset(index, browseActiveIndex, filteredBrowseNotes.length, true);
+      const absOffset = Math.abs(offset);
+      if (absOffset > browseStackMaxOffset) {
+        continue;
+      }
+      visible.push({ note: filteredBrowseNotes[index], index, offset, absOffset });
+    }
+
+    visible.sort((left, right) => right.absOffset - left.absOffset);
+    return visible;
+  }, [browseActiveIndex, browseStackMaxOffset, filteredBrowseNotes]);
+
+  const browseDotIndices = useMemo(() => {
+    const total = filteredBrowseNotes.length;
+    if (total <= 15) {
+      return Array.from({ length: total }, (_value, index) => index);
+    }
+
+    const radius = 6;
+    const desiredCount = radius * 2 + 1;
+    let start = Math.max(0, browseActiveIndex - radius);
+    let end = Math.min(total - 1, browseActiveIndex + radius);
+
+    const currentCount = end - start + 1;
+    if (currentCount < desiredCount) {
+      if (start === 0) {
+        end = Math.min(total - 1, desiredCount - 1);
+      } else if (end === total - 1) {
+        start = Math.max(0, total - desiredCount);
+      }
+    }
+
+    const indices: number[] = [];
+    for (let index = start; index <= end; index += 1) {
+      indices.push(index);
+    }
+    return indices;
+  }, [browseActiveIndex, filteredBrowseNotes.length]);
+
+  const browseShowLeadingEllipsis = browseDotIndices.length > 0 && browseDotIndices[0] > 0;
+  const browseShowTrailingEllipsis =
+    browseDotIndices.length > 0 && browseDotIndices[browseDotIndices.length - 1] < filteredBrowseNotes.length - 1;
 
   const handleBrowseStackPrev = () => {
     if (filteredBrowseNotes.length === 0) {
@@ -2095,47 +1897,11 @@ function App() {
   };
 
 
-  const handleNodeClick = (nodeObject: object) => {
-    const node = nodeObject as GraphNode3D;
-    setSelectedNodeId(node.id);
-
-    if (effectiveGraphMode !== "3d") {
-      return;
-    }
-
-    const x = node.x ?? 0;
-    const y = node.y ?? 0;
-    const z = node.z ?? 0;
-    const distance = 85;
-    const norm = Math.hypot(x, y, z) || 1;
-    const ratio = 1 + distance / norm;
-
-    graphRef.current?.cameraPosition(
-      { x: x * ratio, y: y * ratio, z: z * ratio },
-      { x, y, z },
-      950,
-    );
-  };
-
-  const handleGraph3DRuntimeError = (error: Error) => {
-    const reason = error.message?.trim() || "WebGL context could not be created for 3D graph.";
-    setGraph3DRuntimeError(reason);
-    setGraphMode("3d");
-    setGraph3DRetryNonce((current) => current + 1);
-    setStatus("WebGL failed. Switched to software 3D renderer.");
-  };
-
   const handleSoftwareGraphNodeClick = (nodeId: string) => {
     setSelectedNodeId(nodeId);
   };
 
-  const ForceGraph3DComponent = forceGraph3D;
-  const ForceGraph2DComponent = forceGraph2D;
-  const has3DRenderer = Boolean(ForceGraph3DComponent);
-  const has2DRenderer = Boolean(ForceGraph2DComponent);
   const effectiveGraphMode: GraphRenderMode = graphMode;
-  const shouldUseSoftware3D = !has3DRenderer || graph3DRuntimeError !== null;
-  const usingSoftware3D = effectiveGraphMode === "3d" && shouldUseSoftware3D;
 
   const resetSemanticOutput = () => {
     setSearchResults([]);
@@ -2144,103 +1910,20 @@ function App() {
     setSearchSources([]);
   };
 
-  useEffect(() => {
-    if (graphViewport.width === 0 || graphViewport.height === 0 || graphSceneData.nodes.length === 0) {
-      return;
-    }
-
-    const alignGraphView = () => {
-      const graphApi = graphRef.current;
-      if (!graphApi) {
-        return;
-      }
-
-      graphApi.d3ReheatSimulation?.();
-      graphApi.zoomToFit?.(800, 80);
-
-      if (effectiveGraphMode === "3d") {
-        graphApi.cameraPosition?.(
-          { x: 0, y: 0, z: 300 },
-          { x: 0, y: 0, z: 0 },
-          800,
-        );
-      } else {
-        graphApi.centerAt?.(0, 0, 800);
-        graphApi.zoom?.(1.08, 800);
-      }
-    };
-
-    const firstTimer = window.setTimeout(alignGraphView, 300);
-    const secondTimer = window.setTimeout(alignGraphView, 950);
-
-    return () => {
-      window.clearTimeout(firstTimer);
-      window.clearTimeout(secondTimer);
-    };
-  }, [effectiveGraphMode, graphSceneData, graphViewport]);
-
-  useEffect(() => {
-    if (graphViewport.width === 0 || graphViewport.height === 0) {
-      return;
-    }
-
-    const renderer = graphRef.current?.renderer?.();
-    renderer?.setPixelRatio?.(window.devicePixelRatio || 1);
-  }, [effectiveGraphMode, graphViewport.height, graphViewport.width]);
-
   const handleToggleGraphMode = (mode: GraphRenderMode) => {
     if (mode === "3d") {
       setGraphMode("3d");
-      setStatus(shouldUseSoftware3D ? "Software 3D mode active." : "Graph mode set to 3D.");
-      return;
-    }
-
-    if (!has2DRenderer && !graphLibError) {
-      setStatus("2D renderer is still loading. Please wait a moment.");
+      setStatus("Software 3D mode active.");
       return;
     }
 
     setGraphMode("2d");
-    setStatus("Graph mode set to 2D.");
-  };
-
-  const handleRetryWebGL3D = () => {
-    if (!has3DRenderer) {
-      setStatus("WebGL renderer is unavailable in this browser. Staying on software 3D.");
-      return;
-    }
-
-    setGraph3DRuntimeError(null);
-    setGraph3DRetryNonce((current) => current + 1);
-    setGraphMode("3d");
-    setStatus("Retrying WebGL 3D renderer...");
+    setStatus("Software 2D mode active.");
   };
 
   const handleCenterGraph = () => {
-    if (effectiveGraphMode === "3d" && usingSoftware3D) {
-      setSoftwareGraph3DResetNonce((current) => current + 1);
-      setStatus("Software 3D camera recentered.");
-      return;
-    }
-
-    const graphApi = graphRef.current;
-    if (!graphApi) {
-      return;
-    }
-
-    graphApi.d3ReheatSimulation?.();
-    graphApi.zoomToFit?.(800, 80);
-    if (effectiveGraphMode === "3d") {
-      graphApi.cameraPosition?.(
-        { x: 0, y: 0, z: 300 },
-        { x: 0, y: 0, z: 0 },
-        800,
-      );
-    } else {
-      graphApi.centerAt?.(0, 0, 700);
-      graphApi.zoom?.(1.12, 700);
-    }
-    setStatus("Graph recentered in view.");
+    setSoftwareGraphViewResetNonce((current) => current + 1);
+    setStatus(effectiveGraphMode === "3d" ? "Software 3D camera recentered." : "Software 2D camera recentered.");
   };
 
   const inViewViewport = { once: true, amount: 0.2 } as const;
@@ -3212,11 +2895,7 @@ function App() {
                 {filteredBrowseNotes.length === 0 ? (
                   <p className="muted">No notes match current filters.</p>
                 ) : (
-                  <div
-                    className={browseStackHovering ? "browse-stack-shell hovering" : "browse-stack-shell"}
-                    onMouseEnter={() => setBrowseStackHovering(true)}
-                    onMouseLeave={() => setBrowseStackHovering(false)}
-                  >
+                  <div className="browse-stack-shell">
                     <div
                       className="browse-stack-stage"
                       style={{ height: browseStackStageHeight }}
@@ -3229,14 +2908,7 @@ function App() {
                       <div className="browse-stack-glow-bottom" aria-hidden="true" />
 
                       <div className="browse-stack-plane" style={{ perspective: "1100px" }}>
-                        <AnimatePresence initial={false}>
-                          {filteredBrowseNotes.map((note, index) => {
-                            const offset = signedOffset(index, browseActiveIndex, filteredBrowseNotes.length, true);
-                            const absOffset = Math.abs(offset);
-                            if (absOffset > browseStackMaxOffset) {
-                              return null;
-                            }
-
+                        {browseStackVisibleCards.map(({ note, index, offset, absOffset }) => {
                             const isActive = offset === 0;
                             const rotateZ = offset * browseStackStepDeg;
                             const x = offset * browseStackCardSpacing;
@@ -3250,7 +2922,8 @@ function App() {
                               ? {
                                   drag: "x" as const,
                                   dragConstraints: { left: 0, right: 0 },
-                                  dragElastic: 0.18,
+                                  dragElastic: 0.13,
+                                  dragMomentum: false,
                                   onDragEnd: (
                                     _event: any,
                                     info: { offset: { x: number }; velocity: { x: number } },
@@ -3304,7 +2977,7 @@ function App() {
                                   rotateX,
                                   scale,
                                 }}
-                                transition={{ type: "spring", stiffness: 280, damping: 28 }}
+                                transition={{ type: "spring", stiffness: 232, damping: 31, mass: 0.86 }}
                                 onClick={() => setBrowseActiveIndex(index)}
                                 {...dragProps}
                               >
@@ -3347,14 +3020,19 @@ function App() {
                                 </div>
                               </motion.div>
                             );
-                          })}
-                        </AnimatePresence>
+                        })}
                       </div>
                     </div>
 
                     <div className="browse-stack-dots-row">
                       <div className="browse-stack-dot-group">
-                        {filteredBrowseNotes.map((note, index) => (
+                        {browseShowLeadingEllipsis && <span className="browse-stack-ellipsis" aria-hidden="true">...</span>}
+                        {browseDotIndices.map((index) => {
+                          const note = filteredBrowseNotes[index];
+                          if (!note) {
+                            return null;
+                          }
+                          return (
                           <button
                             key={`dot-${note.id}`}
                             type="button"
@@ -3362,7 +3040,9 @@ function App() {
                             onClick={() => setBrowseActiveIndex(index)}
                             aria-label={`Show note ${note.title}`}
                           />
-                        ))}
+                          );
+                        })}
+                        {browseShowTrailingEllipsis && <span className="browse-stack-ellipsis" aria-hidden="true">...</span>}
                       </div>
 
                       <div className="browse-stack-nav">
@@ -3425,7 +3105,6 @@ function App() {
                     type="button"
                     className={effectiveGraphMode === "2d" ? "graph-view-tab-button active" : "graph-view-tab-button"}
                     onClick={() => handleToggleGraphMode("2d")}
-                    disabled={!has2DRenderer}
                   >
                     {effectiveGraphMode === "2d" && <motion.span layoutId="graph-view-underline" className="graph-view-underline" />}
                     <span className={effectiveGraphMode === "2d" ? "graph-view-tab-label active-label" : "graph-view-tab-label"}>
@@ -3510,131 +3189,26 @@ function App() {
                   style={{ height: "520px", maxWidth: "100%" }}
                   ref={graphStageRef}
                 >
-                  {effectiveGraphMode === "3d" && usingSoftware3D && (
-                    <div className="graph-webgl-hint-row">
-                      <p className="muted graph-empty graph-soft3d-note">
-                        WebGL 3D is unavailable. Running software 3D mode for compatibility.
-                      </p>
-                      {has3DRenderer && (
-                        <button type="button" className="button-neutral graph-soft3d-retry" onClick={handleRetryWebGL3D}>
-                          Retry WebGL 3D
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  <p className="muted graph-empty graph-soft3d-note">
+                    Software-rendered graph mode active. Faster startup, no WebGL dependency.
+                  </p>
                   <div className="relative w-full overflow-hidden graph-stage-frame" style={{ height: "100%", maxWidth: "100%" }}>
                     {graphSceneData.nodes.length === 0 ? (
                       <p className="muted graph-empty">No graph nodes to render. Load insights and create notes first.</p>
                     ) : graphViewport.width === 0 || graphViewport.height === 0 ? (
                       <p className="muted graph-empty">Preparing graph viewport...</p>
-                    ) : effectiveGraphMode === "3d" && usingSoftware3D ? (
+                    ) : (
                       <SoftwareGraph3DCanvas
                         width={graphViewport.width}
                         height={graphViewport.height}
-                        nodes={graphSceneData.nodes}
-                        links={graphSceneData.links}
+                        nodes={softwareGraphData.nodes}
+                        links={softwareGraphData.links}
+                        mode={effectiveGraphMode}
                         selectedNodeId={selectedNodeId}
-                        resetNonce={softwareGraph3DResetNonce}
+                        resetNonce={softwareGraphViewResetNonce}
                         reduceMotion={Boolean(reduceMotion)}
                         onNodeClick={handleSoftwareGraphNodeClick}
                       />
-                    ) : graphLibError ? (
-                      <div className="fallback-wrap">
-                        <p className="muted graph-empty">{graphLibError}</p>
-                        <svg
-                          className="fallback-graph-svg"
-                          width="100%"
-                          height="100%"
-                          viewBox={`0 0 ${fallbackLayout.width} ${fallbackLayout.height}`}
-                          preserveAspectRatio="xMidYMid meet"
-                          role="img"
-                          aria-label="Fallback knowledge graph"
-                        >
-                          {fallbackLayout.links.map((link) => (
-                            <line
-                              key={`f-link-${link.id}`}
-                              x1={link.sx}
-                              y1={link.sy}
-                              x2={link.tx}
-                              y2={link.ty}
-                              stroke={link.is_ai_generated ? "#2a8f86" : "#8a6d3b"}
-                              strokeWidth={link.is_ai_generated ? 2 : 1.2}
-                              strokeOpacity={0.58}
-                            />
-                          ))}
-                          {fallbackLayout.nodes.map((node) => (
-                            <g key={`f-node-${node.id}`} className="fallback-node" onClick={() => setSelectedNodeId(node.id)}>
-                              <circle cx={node.px} cy={node.py} r={node.radius} fill={node.color} />
-                              <text x={node.px} y={node.py - node.radius - 5} textAnchor="middle">
-                                {truncateText(node.title, 24)}
-                              </text>
-                            </g>
-                          ))}
-                        </svg>
-                      </div>
-                    ) : effectiveGraphMode === "3d" && ForceGraph3DComponent ? (
-                      <GraphRuntimeBoundary
-                        resetKey={`graph-3d-${graph3DRetryNonce}`}
-                        onError={handleGraph3DRuntimeError}
-                        fallback={
-                          <p className="muted graph-empty">
-                            WebGL 3D failed. Switching to software 3D mode...
-                          </p>
-                        }
-                      >
-                        <ForceGraph3DComponent
-                          ref={graphRef}
-                          className="graph-renderer-element"
-                          graphData={graphSceneData}
-                          width={graphViewport.width}
-                          height={graphViewport.height}
-                          style={{ width: "100%", height: "100%", maxWidth: "100%", display: "block" }}
-                          linkDistance={graphLinkDistance}
-                          linkStrength={graphLinkStrength}
-                          d3AlphaDecay={0.04}
-                          d3VelocityDecay={0.36}
-                          nodeLabel={(node: object) => {
-                            const item = node as GraphNode3D;
-                            return `${item.title}\nSource: ${sourceTypeLabel(item.source_type)}\nTags: ${item.tags.join(", ") || "none"}`;
-                          }}
-                          nodeColor={(node: object) => (node as GraphNode3D).color}
-                          nodeVal={(node: object) => (node as GraphNode3D).val}
-                          linkColor={(link: object) => ((link as GraphLink3D).is_ai_generated ? "#2a8f86" : "#8a6d3b")}
-                          linkWidth={(link: object) => ((link as GraphLink3D).is_ai_generated ? 1.6 : 0.9)}
-                          linkDirectionalParticles={(link: object) => ((link as GraphLink3D).is_ai_generated ? 2 : 0)}
-                          linkDirectionalParticleWidth={1.4}
-                          linkDirectionalParticleSpeed={0.008}
-                          showNavInfo={false}
-                          onNodeClick={handleNodeClick}
-                          backgroundColor="rgba(0,0,0,0)"
-                        />
-                      </GraphRuntimeBoundary>
-                    ) : effectiveGraphMode === "2d" && ForceGraph2DComponent ? (
-                      <ForceGraph2DComponent
-                        ref={graphRef}
-                        className="graph-renderer-element"
-                        graphData={graphSceneData2D}
-                        width={graphViewport.width}
-                        height={graphViewport.height}
-                        style={{ width: "100%", height: "100%", maxWidth: "100%", display: "block" }}
-                        linkDistance={graphLinkDistance}
-                        linkStrength={graphLinkStrength}
-                        d3AlphaDecay={0.04}
-                        nodeLabel={(node: object) => {
-                          const item = node as GraphNode3D;
-                          return `${item.title}\nSource: ${sourceTypeLabel(item.source_type)}\nTags: ${item.tags.join(", ") || "none"}`;
-                        }}
-                        nodeVal={(node: object) => (node as GraphNode3D).val}
-                        nodeColor={(node: object) => (node as GraphNode3D).color}
-                        linkColor={(link: object) => ((link as GraphLink3D).is_ai_generated ? "#2a8f86" : "#8a6d3b")}
-                        linkWidth={(link: object) => ((link as GraphLink3D).is_ai_generated ? 2 : 1)}
-                        onNodeClick={handleNodeClick}
-                        cooldownTicks={120}
-                        d3VelocityDecay={0.28}
-                        backgroundColor="rgba(0,0,0,0)"
-                      />
-                    ) : (
-                      <p className="muted graph-empty">Loading graph renderer...</p>
                     )}
                   </div>
                 </div>
