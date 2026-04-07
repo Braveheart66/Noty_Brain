@@ -1,5 +1,5 @@
-import { Component, useEffect, useMemo, useRef, useState } from "react";
-import type { ComponentType, FormEvent, ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ComponentType, FormEvent } from "react";
 import type { JSONContent } from "@tiptap/react";
 import {
   addManualLink,
@@ -122,43 +122,6 @@ type DraftTemplatePayload = {
 type HomeChipIconProps = {
   className?: string;
 };
-
-type GraphRendererBoundaryProps = {
-  children: ReactNode;
-  resetKey: string;
-  fallback: ReactNode;
-  onError: (error: Error) => void;
-};
-
-type GraphRendererBoundaryState = {
-  hasError: boolean;
-};
-
-class GraphRendererBoundary extends Component<GraphRendererBoundaryProps, GraphRendererBoundaryState> {
-  state: GraphRendererBoundaryState = { hasError: false };
-
-  static getDerivedStateFromError(): GraphRendererBoundaryState {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error: Error): void {
-    this.props.onError(error);
-  }
-
-  componentDidUpdate(prevProps: GraphRendererBoundaryProps): void {
-    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
-      this.setState({ hasError: false });
-    }
-  }
-
-  render(): ReactNode {
-    if (this.state.hasError) {
-      return this.props.fallback;
-    }
-
-    return this.props.children;
-  }
-}
 
 function BrainIcon({ className }: HomeChipIconProps) {
   return (
@@ -388,10 +351,7 @@ function App() {
   const [graphMode, setGraphMode] = useState<GraphRenderMode>("2d");
   const [forceGraph2D, setForceGraph2D] = useState<GraphRenderer | null>(null);
   const [forceGraph3D, setForceGraph3D] = useState<GraphRenderer | null>(null);
-  const [isLoading3DRenderer, setIsLoading3DRenderer] = useState(false);
-  const [graph3DRetryNonce, setGraph3DRetryNonce] = useState(0);
   const [graphLibError, setGraphLibError] = useState<string | null>(null);
-  const [graph3DError, setGraph3DError] = useState<string | null>(null);
   const [nodeSearch, setNodeSearch] = useState("");
   const [focusNodeId, setFocusNodeId] = useState("");
   const [activeCluster, setActiveCluster] = useState<number | null>(null);
@@ -440,24 +400,13 @@ function App() {
       let threeError: string | null = null;
       let twoError: string | null = null;
 
-      if (!disposed) {
-        setIsLoading3DRenderer(true);
-      }
       try {
         const { default: ForceGraph3DModule } = await import("react-force-graph-3d");
         if (!disposed) {
           setForceGraph3D(() => ForceGraph3DModule as GraphRenderer);
-          setGraph3DError(null);
         }
       } catch (error) {
         threeError = error instanceof Error ? error.message : "unknown 3D error";
-        if (!disposed) {
-          setGraph3DError(`3D renderer failed to load: ${threeError}`);
-        }
-      } finally {
-        if (!disposed) {
-          setIsLoading3DRenderer(false);
-        }
       }
 
       try {
@@ -2025,12 +1974,6 @@ function App() {
     );
   };
 
-  const handleGraph3DRuntimeError = (error: Error) => {
-    const reason = error.message?.trim() || "WebGL context could not be created for 3D graph.";
-    setGraph3DError(reason);
-    setStatus("3D view failed to initialize. Click 3D View to retry or switch to 2D.");
-  };
-
   const ForceGraph3DComponent = forceGraph3D;
   const ForceGraph2DComponent = forceGraph2D;
   const has3DRenderer = Boolean(ForceGraph3DComponent);
@@ -2089,41 +2032,8 @@ function App() {
   }, [effectiveGraphMode, graphViewport.height, graphViewport.width]);
 
   const handleToggleGraphMode = (mode: GraphRenderMode) => {
-    if (mode === "3d") {
-      if (!has3DRenderer && isLoading3DRenderer) {
-        setStatus("3D renderer is still loading. Please wait a moment.");
-        return;
-      }
-
-      if (!has3DRenderer) {
-        setStatus("Loading 3D renderer...");
-        setIsLoading3DRenderer(true);
-        void import("react-force-graph-3d")
-          .then(({ default: ForceGraph3DModule }) => {
-            setForceGraph3D(() => ForceGraph3DModule as GraphRenderer);
-            setGraph3DError(null);
-            setGraphMode("3d");
-            setStatus("Graph mode set to 3D.");
-          })
-          .catch((error) => {
-            const reason = error instanceof Error ? error.message : "unknown 3D error";
-            setGraph3DError(`3D renderer failed to load: ${reason}`);
-            setStatus("Could not load 3D renderer on this session. Try refreshing once.");
-          })
-          .finally(() => {
-            setIsLoading3DRenderer(false);
-          });
-        return;
-      }
-
-      const isRetrying = Boolean(graph3DError);
-      if (isRetrying) {
-        setGraph3DError(null);
-        setGraph3DRetryNonce((current) => current + 1);
-      }
-
-      setGraphMode("3d");
-      setStatus(isRetrying ? "Retrying 3D view..." : "Graph mode set to 3D.");
+    if (mode === "3d" && !has3DRenderer) {
+      setStatus("3D renderer is not available in this browser. Use 2D mode.");
       return;
     }
 
@@ -2133,8 +2043,7 @@ function App() {
     }
 
     setGraphMode(mode);
-    setGraph3DError(null);
-    setStatus("Graph mode set to 2D.");
+    setStatus(mode === "3d" ? "Graph mode set to 3D." : "Graph mode set to 2D.");
   };
 
   const handleCenterGraph = () => {
@@ -3072,48 +2981,50 @@ function App() {
                       <button type="button" className="button-neutral filter-sort-trigger">Filter</button>
                     </PopoverTrigger>
                     <PopoverContent className="browse-filter-popover" align="end">
-                      <div className="browse-filter-panel-section">
-                        <p className="browse-filter-label">Source</p>
-                        <div className="browse-filter-control">
-                          <select value={browseSource} onChange={(event) => setBrowseSource(event.target.value as BrowseSource)}>
-                            <option value="all">All Sources</option>
-                            <option value="notes">Notes</option>
-                            <option value="imports">Imports</option>
-                          </select>
+                      <div className="browse-filter-popover-inner">
+                        <div className="browse-filter-panel-section">
+                          <p className="browse-filter-label">Source</p>
+                          <div className="browse-filter-control">
+                            <select className="browse-filter-select" value={browseSource} onChange={(event) => setBrowseSource(event.target.value as BrowseSource)}>
+                              <option value="all">All Sources</option>
+                              <option value="notes">Notes</option>
+                              <option value="imports">Imports</option>
+                            </select>
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="browse-filter-panel-section">
-                        <p className="browse-filter-label">Date Range</p>
-                        <div className="browse-date-row">
-                          <label className="browse-date-field">
-                            <span>From</span>
-                            <input type="date" value={browseFromDate} onChange={(event) => setBrowseFromDate(event.target.value)} />
-                          </label>
-                          <label className="browse-date-field">
-                            <span>To</span>
-                            <input type="date" value={browseToDate} onChange={(event) => setBrowseToDate(event.target.value)} />
-                          </label>
+                        <div className="browse-filter-panel-section">
+                          <p className="browse-filter-label">Date Range</p>
+                          <div className="browse-date-row">
+                            <label className="browse-date-field">
+                              <span>From</span>
+                              <input className="browse-date-input" type="date" value={browseFromDate} onChange={(event) => setBrowseFromDate(event.target.value)} />
+                            </label>
+                            <label className="browse-date-field">
+                              <span>To</span>
+                              <input className="browse-date-input" type="date" value={browseToDate} onChange={(event) => setBrowseToDate(event.target.value)} />
+                            </label>
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="browse-filter-panel-section">
-                        <p className="browse-filter-label">Sort</p>
-                        <div className="browse-sort-toggle" role="group" aria-label="Sort order">
-                          <button
-                            type="button"
-                            className={browseSort === "updated_desc" ? "active" : ""}
-                            onClick={() => setBrowseSort("updated_desc")}
-                          >
-                            Newest First
-                          </button>
-                          <button
-                            type="button"
-                            className={browseSort === "updated_asc" ? "active" : ""}
-                            onClick={() => setBrowseSort("updated_asc")}
-                          >
-                            Oldest First
-                          </button>
+                        <div className="browse-filter-panel-section">
+                          <p className="browse-filter-label">Sort</p>
+                          <div className="browse-sort-toggle" role="group" aria-label="Sort order">
+                            <button
+                              type="button"
+                              className={browseSort === "updated_desc" ? "active browse-sort-button" : "browse-sort-button"}
+                              onClick={() => setBrowseSort("updated_desc")}
+                            >
+                              Newest First
+                            </button>
+                            <button
+                              type="button"
+                              className={browseSort === "updated_asc" ? "active browse-sort-button" : "browse-sort-button"}
+                              onClick={() => setBrowseSort("updated_asc")}
+                            >
+                              Oldest First
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </PopoverContent>
@@ -3134,12 +3045,23 @@ function App() {
                     >
                       <TiltCard className="browse-note-card-tilt" maxRotation={6}>
                         <article className="browse-note-card">
-                          <h3>{note.title}</h3>
-                          <p>{truncateText(note.content, 200)}</p>
-                          <div className="browse-note-meta-row">
-                            <span className="note-date-badge">{new Date(note.updated_at).toLocaleDateString()}</span>
-                            <span className="note-source-badge">{sourceBadgeLabel(note.source_type)}</span>
+                          <div className="browse-note-head-row">
+                            <span className="browse-note-icon" aria-hidden="true">{note.icon_emoji || "📝"}</span>
+                            <div className="browse-note-meta-row">
+                              <span className="note-date-badge">{new Date(note.updated_at).toLocaleDateString()}</span>
+                              <span className="note-source-badge">{sourceBadgeLabel(note.source_type)}</span>
+                            </div>
                           </div>
+
+                          <h3 className="browse-note-title">{note.title}</h3>
+                          <p className="browse-note-excerpt">{truncateText(note.content, 220)}</p>
+
+                          {note.source_ref && <p className="browse-note-source-ref">{truncateText(note.source_ref, 72)}</p>}
+
+                          <div className="browse-note-footer-row">
+                            <small className="browse-note-updated-at">{new Date(note.updated_at).toLocaleString()}</small>
+                          </div>
+
                           <button
                             type="button"
                             className="button-neutral"
@@ -3214,7 +3136,7 @@ function App() {
                     type="button"
                     className={effectiveGraphMode === "3d" ? "graph-view-tab-button active" : "graph-view-tab-button"}
                     onClick={() => handleToggleGraphMode("3d")}
-                    disabled={isLoading3DRenderer}
+                    disabled={!has3DRenderer}
                   >
                     {effectiveGraphMode === "3d" && <motion.span layoutId="graph-view-underline" className="graph-view-underline" />}
                     <span className={effectiveGraphMode === "3d" ? "graph-view-tab-label active-label" : "graph-view-tab-label"}>
@@ -3329,38 +3251,32 @@ function App() {
                         </svg>
                       </div>
                     ) : effectiveGraphMode === "3d" && ForceGraph3DComponent ? (
-                      <GraphRendererBoundary
-                        resetKey={`3d-${graph3DRetryNonce}`}
-                        onError={handleGraph3DRuntimeError}
-                        fallback={<p className="muted graph-empty">3D view failed to initialize. Click 3D View to retry.</p>}
-                      >
-                        <ForceGraph3DComponent
-                          ref={graphRef}
-                          className="graph-renderer-element"
-                          graphData={graphSceneData}
-                          width={graphViewport.width}
-                          height={graphViewport.height}
-                          style={{ width: "100%", height: "100%", maxWidth: "100%", display: "block" }}
-                          linkDistance={graphLinkDistance}
-                          linkStrength={graphLinkStrength}
-                          d3AlphaDecay={0.04}
-                          d3VelocityDecay={0.36}
-                          nodeLabel={(node: object) => {
-                            const item = node as GraphNode3D;
-                            return `${item.title}\nSource: ${sourceTypeLabel(item.source_type)}\nTags: ${item.tags.join(", ") || "none"}`;
-                          }}
-                          nodeColor={(node: object) => (node as GraphNode3D).color}
-                          nodeVal={(node: object) => (node as GraphNode3D).val}
-                          linkColor={(link: object) => ((link as GraphLink3D).is_ai_generated ? "#2a8f86" : "#8a6d3b")}
-                          linkWidth={(link: object) => ((link as GraphLink3D).is_ai_generated ? 1.6 : 0.9)}
-                          linkDirectionalParticles={(link: object) => ((link as GraphLink3D).is_ai_generated ? 2 : 0)}
-                          linkDirectionalParticleWidth={1.4}
-                          linkDirectionalParticleSpeed={0.008}
-                          showNavInfo={false}
-                          onNodeClick={handleNodeClick}
-                          backgroundColor="rgba(0,0,0,0)"
-                        />
-                      </GraphRendererBoundary>
+                      <ForceGraph3DComponent
+                        ref={graphRef}
+                        className="graph-renderer-element"
+                        graphData={graphSceneData}
+                        width={graphViewport.width}
+                        height={graphViewport.height}
+                        style={{ width: "100%", height: "100%", maxWidth: "100%", display: "block" }}
+                        linkDistance={graphLinkDistance}
+                        linkStrength={graphLinkStrength}
+                        d3AlphaDecay={0.04}
+                        d3VelocityDecay={0.36}
+                        nodeLabel={(node: object) => {
+                          const item = node as GraphNode3D;
+                          return `${item.title}\nSource: ${sourceTypeLabel(item.source_type)}\nTags: ${item.tags.join(", ") || "none"}`;
+                        }}
+                        nodeColor={(node: object) => (node as GraphNode3D).color}
+                        nodeVal={(node: object) => (node as GraphNode3D).val}
+                        linkColor={(link: object) => ((link as GraphLink3D).is_ai_generated ? "#2a8f86" : "#8a6d3b")}
+                        linkWidth={(link: object) => ((link as GraphLink3D).is_ai_generated ? 1.6 : 0.9)}
+                        linkDirectionalParticles={(link: object) => ((link as GraphLink3D).is_ai_generated ? 2 : 0)}
+                        linkDirectionalParticleWidth={1.4}
+                        linkDirectionalParticleSpeed={0.008}
+                        showNavInfo={false}
+                        onNodeClick={handleNodeClick}
+                        backgroundColor="rgba(0,0,0,0)"
+                      />
                     ) : effectiveGraphMode === "2d" && ForceGraph2DComponent ? (
                       <ForceGraph2DComponent
                         ref={graphRef}
