@@ -659,12 +659,22 @@ p {
 
 .browse-filter-popover {
   display: grid;
-  gap: 0.8rem;
+  gap: 1rem;
 }
 
 .browse-filter-panel-section {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.45rem;
+  align-items: start;
+}
+
+.browse-filter-control {
+  display: grid;
+  width: 100%;
+}
+
+.browse-filter-control select {
+  width: 100%;
 }
 
 .browse-filter-label {
@@ -694,10 +704,13 @@ p {
 .browse-sort-toggle {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.45rem;
+  gap: 0.55rem;
 }
 
 .browse-sort-toggle button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: #e8f2ec;
   border-color: #b8cec1;
   color: #24443a;
@@ -712,6 +725,23 @@ p {
   background: var(--accent);
   border-color: var(--accent);
   color: #ffffff;
+}
+
+.browse-date-field {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.browse-date-field input {
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .browse-date-row,
+  .browse-sort-toggle {
+    grid-template-columns: 1fr;
+  }
 }
 
 .date-range-inline {

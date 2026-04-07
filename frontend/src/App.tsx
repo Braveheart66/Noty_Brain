@@ -333,27 +333,6 @@ function resolveWorkspacePage(path: string): WorkspacePage {
   return "capture";
 }
 
-function detectWebGLSupport(): { supported: boolean; reason: string | null } {
-  if (typeof window === "undefined") {
-    return { supported: false, reason: "WebGL is unavailable in the current runtime." };
-  }
-
-  const canvas = window.document.createElement("canvas");
-  const context =
-    canvas.getContext("webgl2") ??
-    canvas.getContext("webgl") ??
-    canvas.getContext("experimental-webgl");
-
-  if (!context) {
-    return {
-      supported: false,
-      reason: "WebGL is disabled in this browser or blocked by the current device policy.",
-    };
-  }
-
-  return { supported: true, reason: null };
-}
-
 function App() {
   const [loginForm, setLoginForm] = useState<LoginFormState>({ email: "", password: "" });
   const [registerForm, setRegisterForm] = useState<RegisterFormState>({ displayName: "", email: "", password: "" });
@@ -426,8 +405,6 @@ function App() {
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const captureEditorFocusRef = useRef<HTMLElement | null>(null);
   const [graphViewport, setGraphViewport] = useState({ width: 0, height: 0 });
-  const webglSupport = useMemo(() => detectWebGLSupport(), []);
-  const isWebGLSupported = webglSupport.supported;
 
   useEffect(() => {
     const storedAccessToken = window.localStorage.getItem("noty_access_token");
@@ -1036,6 +1013,13 @@ function App() {
     }
     return graphSceneData.nodes.find((node) => node.id === selectedNodeId) ?? null;
   }, [graphSceneData.nodes, selectedNodeId]);
+
+  const selectedNodeNote = useMemo(() => {
+    if (!selectedNodeId) {
+      return null;
+    }
+    return notes.find((note) => note.id === selectedNodeId) ?? null;
+  }, [notes, selectedNodeId]);
 
   const graphNodeOptions = useMemo(() => {
     const source = graph?.nodes ?? [];
@@ -2106,8 +2090,6 @@ function App() {
 
   const handleToggleGraphMode = (mode: GraphRenderMode) => {
     if (mode === "3d") {
-      const webglWarning = !isWebGLSupported ? webglSupport.reason : null;
-
       if (!has3DRenderer && isLoading3DRenderer) {
         setStatus("3D renderer is still loading. Please wait a moment.");
         return;
@@ -2141,11 +2123,7 @@ function App() {
       }
 
       setGraphMode("3d");
-      if (webglWarning) {
-        setStatus(`Trying 3D view. ${webglWarning}`);
-      } else {
-        setStatus(isRetrying ? "Retrying 3D view..." : "Graph mode set to 3D.");
-      }
+      setStatus(isRetrying ? "Retrying 3D view..." : "Graph mode set to 3D.");
       return;
     }
 
@@ -3095,24 +3073,24 @@ function App() {
                     </PopoverTrigger>
                     <PopoverContent className="browse-filter-popover" align="end">
                       <div className="browse-filter-panel-section">
-                        <label>
-                          <span>Source</span>
+                        <p className="browse-filter-label">Source</p>
+                        <div className="browse-filter-control">
                           <select value={browseSource} onChange={(event) => setBrowseSource(event.target.value as BrowseSource)}>
                             <option value="all">All Sources</option>
                             <option value="notes">Notes</option>
                             <option value="imports">Imports</option>
                           </select>
-                        </label>
+                        </div>
                       </div>
 
                       <div className="browse-filter-panel-section">
                         <p className="browse-filter-label">Date Range</p>
                         <div className="browse-date-row">
-                          <label>
+                          <label className="browse-date-field">
                             <span>From</span>
                             <input type="date" value={browseFromDate} onChange={(event) => setBrowseFromDate(event.target.value)} />
                           </label>
-                          <label>
+                          <label className="browse-date-field">
                             <span>To</span>
                             <input type="date" value={browseToDate} onChange={(event) => setBrowseToDate(event.target.value)} />
                           </label>
@@ -3379,15 +3357,6 @@ function App() {
                           linkDirectionalParticleWidth={1.4}
                           linkDirectionalParticleSpeed={0.008}
                           showNavInfo={false}
-                          rendererConfig={{
-                            antialias: false,
-                            alpha: true,
-                            depth: true,
-                            stencil: false,
-                            failIfMajorPerformanceCaveat: false,
-                            powerPreference: "low-power",
-                            precision: "mediump",
-                          }}
                           onNodeClick={handleNodeClick}
                           backgroundColor="rgba(0,0,0,0)"
                         />
@@ -3423,9 +3392,46 @@ function App() {
                 </div>
 
                 {selectedNode && (
-                  <p className="muted graph-selected-note">
-                    Selected node: <strong>{selectedNode.title}</strong>
-                  </p>
+                  <article className="graph-selected-note" aria-live="polite">
+                    <div className="graph-selected-note-header">
+                      <div className="graph-selected-note-title-wrap">
+                        <p className="muted graph-selected-note-kicker">Selected Note</p>
+                        <h3>{selectedNode.title}</h3>
+                      </div>
+                      <div className="graph-selected-note-meta">
+                        <span className="note-source-badge">{sourceTypeLabel(selectedNode.source_type)}</span>
+                        {selectedNodeNote?.updated_at && (
+                          <span className="note-date-badge">{new Date(selectedNodeNote.updated_at).toLocaleDateString()}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="graph-selected-note-preview">
+                      {truncateText(selectedNodeNote?.content ?? "No content preview available for this note.", 300)}
+                    </p>
+
+                    {selectedNode.tags.length > 0 && (
+                      <div className="graph-selected-note-tags" aria-label="Selected note tags">
+                        {selectedNode.tags.map((tag) => (
+                          <span key={`${selectedNode.id}-${tag}`} className="note-source-badge">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="graph-selected-note-actions">
+                      <button
+                        type="button"
+                        className="button-neutral"
+                        onClick={() => {
+                          void openNoteForEditing(selectedNode.id);
+                        }}
+                      >
+                        Open Note
+                      </button>
+                    </div>
+                  </article>
                 )}
               </div>
             </motion.section>

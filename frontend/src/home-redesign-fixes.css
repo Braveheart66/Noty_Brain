@@ -1377,7 +1377,61 @@
 }
 
 .graph-selected-note {
-  margin-top: 0.5rem;
+  margin-top: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  padding: 0.85rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.graph-selected-note-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.graph-selected-note-title-wrap {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.graph-selected-note-kicker {
+  margin: 0;
+}
+
+.graph-selected-note-title-wrap h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.graph-selected-note-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  flex-wrap: wrap;
+}
+
+.graph-selected-note-preview {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.graph-selected-note-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.graph-selected-note-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .graph-stats-grid {
