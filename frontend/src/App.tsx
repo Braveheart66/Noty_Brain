@@ -3037,10 +3037,9 @@ function App() {
 
             <motion.section
               className="workspace-flow-section flow-divider-section"
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={inViewViewport}
-              transition={inViewTransition}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, ease: "easeOut" }}
             >
               <div className="flow-inner">
                 <div className="flow-divider-line"><span>or browse manually</span></div>
@@ -3049,10 +3048,9 @@ function App() {
 
             <motion.section
               className="workspace-flow-section"
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={inViewViewport}
-              transition={inViewTransition}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, ease: "easeOut", delay: 0.05 }}
             >
               <div className="flow-inner explore-browse-inner">
                 <p className="flow-section-label">Browse Notes</p>
