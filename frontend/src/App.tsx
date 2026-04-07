@@ -34,11 +34,19 @@ import type {
 import { BlockEditor } from "./components/editor/BlockEditor";
 import { EMPTY_DOC, jsonToPlainText, plainTextToDoc, sanitizeEditorJson } from "./components/editor/richText";
 import { CommandPalette } from "./components/workspace/CommandPalette";
-import { HomeGraphHero } from "./components/workspace/HomeGraphHero";
 import { IntelligencePanel } from "./components/workspace/IntelligencePanel";
 import { TemplatePickerModal } from "./components/workspace/TemplatePickerModal";
 import { WorkspaceSidebar } from "./components/workspace/WorkspaceSidebar";
 import { DottedSurface } from "./components/editor/DottedSurface";
+import { ContainerScroll } from "./components/ui/container-scroll-animation";
+import { AnimatedNavFramer } from "./components/ui/navigation-menu";
+import { ParticleCanvas } from "./components/ui/canvas";
+import { TiltCard } from "./components/ui/tilt-card";
+import { FeatureSection } from "./components/ui/feature-section";
+import { MockCaptureUI } from "./components/ui/mock-capture-ui";
+import { MockExploreUI } from "./components/ui/mock-explore-ui";
+import { MockGraphUI } from "./components/ui/mock-graph-ui";
+import { MockDashboardUI } from "./components/ui/mock-dashboard-ui";
 import "./App.css";
 
 const CLUSTER_PALETTE = [
@@ -175,6 +183,7 @@ function App() {
   const [editorJson, setEditorJson] = useState<JSONContent>(EMPTY_DOC);
   const [editorText, setEditorText] = useState("");
   const [editorDirty, setEditorDirty] = useState(false);
+  const [editorKeyVersion, setEditorKeyVersion] = useState(0);
   const [backlinks, setBacklinks] = useState<Backlink[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
@@ -1010,6 +1019,7 @@ function App() {
     setEditorJson(nextJson);
     setEditorText(activeNote.content || jsonToPlainText(nextJson));
     setEditorDirty(false);
+    setEditorKeyVersion((v) => v + 1);
   }, [activeNote]);
 
   useEffect(() => {
@@ -1127,6 +1137,7 @@ function App() {
     setEditorJson(templateJson);
     setEditorText(selectedTemplate.content_text || jsonToPlainText(templateJson));
     setEditorDirty(true);
+    setEditorKeyVersion((v) => v + 1);
     setShowTemplatePicker(false);
   };
 
@@ -1741,694 +1752,761 @@ function App() {
     );
   }
 
-  const pageHeader =
-    workspacePage === "capture"
-      ? {
-          title: "Capture your thoughts and build knowledge",
-          subtitle: "Compose rich notes, connect ideas with backlinks, and convert drafts into reusable templates.",
-        }
-      : workspacePage === "explore"
-        ? {
-            title: "Ask questions and explore your knowledge base",
-            subtitle: "Use semantic retrieval, answer synthesis, and filtered browsing to navigate your notes quickly.",
-          }
-        : workspacePage === "graph"
-          ? {
-              title: "Visualize connections and discover insights",
-              subtitle: "Inspect node neighborhoods, cluster structure, and graph-level trends in interactive space.",
-            }
-          : {
-              title: "Your AI-powered workspace",
-              subtitle: "Jump into Capture, Explore, or Graph from a single launch surface designed for focused thinking.",
-            };
+  /* ──────────────────── HOME PAGE ──────────────────── */
+  if (workspacePage === "home") {
+    const recentNotes = notes.slice(0, 6);
 
-  const accountFallbackEmail = profile?.email || loginForm.email || registerForm.email || "";
+    return (
+      <div className="shell workspace-shell single-page-scroll">
+        <AnimatedNavFramer onNavigate={navigateTo} currentPage={workspacePage} />
 
-  return (
-    <div className="shell workspace-shell">
-      <header className="hero workspace-hero premium-hero">
-        <p className="eyebrow">AI-Powered Second Brain</p>
-        <h1>Noty Brain</h1>
-        <h2 className="workspace-page-title">{pageHeader.title}</h2>
-        <p className="subtitle">{pageHeader.subtitle}</p>
-      </header>
-
-      <section className="workspace-top">
-        <nav className="tabbar route-tabbar" aria-label="Workspace sections">
-          <button
-            type="button"
-            className={workspacePage === "home" ? "tab-button active" : "tab-button"}
-            onClick={() => navigateTo("/home")}
-          >
-            <span>Home</span>
-            <small>Launch and quick actions</small>
-          </button>
-          <button
-            type="button"
-            className={workspacePage === "capture" ? "tab-button active" : "tab-button"}
-            onClick={() => navigateTo("/capture")}
-          >
-            <span>Capture</span>
-            <small>Write and ingest notes</small>
-          </button>
-          <button
-            type="button"
-            className={workspacePage === "explore" ? "tab-button active" : "tab-button"}
-            onClick={() => navigateTo("/explore")}
-          >
-            <span>Explore</span>
-            <small>Semantic answers and note browser</small>
-          </button>
-          <button
-            type="button"
-            className={workspacePage === "graph" ? "tab-button active" : "tab-button"}
-            onClick={() => navigateTo("/graph")}
-          >
-            <span>Graph Lab</span>
-            <small>Nodes, links, and clusters</small>
-          </button>
-        </nav>
-
-        <aside className="card mini-account">
-          <p className="mini-account-name">{profile?.display_name || profile?.username || accountFallbackEmail.split("@")[0] || "User"}</p>
-          <p className="mini-account-email">{accountFallbackEmail || "Signed in"}</p>
-          <div className="mini-account-actions">
-            <button type="button" className="button-neutral" onClick={handleRefreshWorkspace}>
-              Refresh
-            </button>
-            <button type="button" className="button-danger" onClick={handleSignOut}>
-              Sign Out
-            </button>
-          </div>
-        </aside>
-      </section>
-
-      <div className={`workspace-body workspace-body-${workspacePage}`}>
-        {workspacePage !== "home" && (
-          <WorkspaceSidebar
-            notes={notes}
-            activeNoteId={activeNoteId}
-            onSelectNote={(noteId) => {
-              setActiveNoteId(noteId);
-              navigateTo("/capture");
-            }}
-            onCreateNote={() => setShowTemplatePicker(true)}
-            onRenameNote={handleRenameNote}
-            onDeleteNote={handleDeleteNote}
-            onDuplicateNote={handleDuplicateNote}
-            onUpdateEmoji={handleUpdateEmoji}
-          />
-        )}
-
-        <main className="workspace-content">
-          {workspacePage === "home" && (
-            <div className="page-stack home-stack">
-              <section className="card home-hero-card">
-                <div className="home-hero-copy">
-                  <h2>Welcome back to Noty Brain</h2>
-                  <p className="muted">
-                    Capture ideas, retrieve context-aware answers, and inspect your knowledge graph with high signal and low friction.
-                  </p>
-                </div>
-                <HomeGraphHero />
-              </section>
-
-              <section className="home-grid-cards">
-                <button type="button" className="card home-nav-card" onClick={() => navigateTo("/capture")}>
-                  <h3>Capture</h3>
-                  <p>Write notes, add backlinks, and save templates.</p>
-                </button>
-                <button type="button" className="card home-nav-card" onClick={() => navigateTo("/explore")}>
-                  <h3>Explore</h3>
-                  <p>Ask semantic questions and browse your knowledge base.</p>
-                </button>
-                <button type="button" className="card home-nav-card" onClick={() => navigateTo("/graph")}>
-                  <h3>Graph</h3>
-                  <p>Visualize relationships and discover connected clusters.</p>
-                </button>
-              </section>
+        {/* ═══ SECTION 1 — HERO ═══ */}
+        <section className="hero-v2">
+          <ParticleCanvas className="hero-v2-canvas" />
+          <div className="hero-v2-content">
+            {/* Ping badge */}
+            <div className="ping-badge-wrap">
+              <span className="ping-badge-dot" />
+              <span className="ping-badge-text">Now with AI Graph Lab</span>
             </div>
-          )}
 
-          {workspacePage === "capture" && (
-            <div className="page-stack capture-stack">
-              <section className="card capture-editor-card">
-                <div className="row between">
-                  <h2>Block Editor</h2>
-                  <div className="row">
-                    <button type="button" className="button-neutral" onClick={() => setShowTemplatePicker(true)}>
-                      Templates
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSaveActiveNote}
-                      disabled={Boolean(noteActionPendingId && activeNoteId === noteActionPendingId)}
-                    >
-                      Save Note
-                    </button>
-                  </div>
-                </div>
+            <h1 className="hero-v2-headline">Your AI-Powered Second Brain</h1>
+            <p className="hero-v2-sub">
+              Capture ideas, retrieve context-aware answers, and inspect your
+              knowledge graph — with high signal and low friction.
+            </p>
 
-                <div className="row">
-                  <input
-                    className="note-emoji-input"
-                    value={editorIcon}
-                    onChange={(event) => setEditorIcon(event.target.value || "📝")}
-                    maxLength={4}
-                  />
-                  <input
-                    placeholder="Note title"
-                    value={editorTitle}
-                    onChange={(event) => {
-                      setEditorTitle(event.target.value);
-                      setEditorDirty(true);
-                    }}
-                  />
-                </div>
-
-                <BlockEditor
-                  initialContent={editorJson}
-                  availableNotes={notes}
-                  onUpdate={({ json, text }) => {
-                    setEditorJson(json);
-                    setEditorText(text);
-                    setEditorDirty(true);
-                  }}
-                  onBacklinkSelect={handleInsertBacklink}
-                />
-
-                <div className="row template-save-row">
-                  <input
-                    placeholder="Save current note as template"
-                    value={templateNameDraft}
-                    onChange={(event) => setTemplateNameDraft(event.target.value)}
-                  />
-                  <button type="button" className="button-neutral" onClick={handleSaveTemplate}>
-                    Save Template
-                  </button>
-                </div>
-              </section>
-
-              <section className="grid two capture-ingest-grid">
-                <article className="card ingest-card ingest-url-card">
-                  <h2>Import URL</h2>
-                  <form onSubmit={handleIngestUrl}>
-                    <input
-                      type="url"
-                      placeholder="https://example.com/article"
-                      value={urlToIngest}
-                      onChange={(event) => setUrlToIngest(event.target.value)}
-                      required
-                    />
-                    <input
-                      placeholder="Optional title override"
-                      value={urlTitle}
-                      onChange={(event) => setUrlTitle(event.target.value)}
-                    />
-                    <button type="submit" disabled={!isAuthenticated}>
-                      Import URL
-                    </button>
-                  </form>
-                </article>
-
-                <article className="card ingest-card ingest-pdf-card">
-                  <h2>Import PDF</h2>
-                  <form onSubmit={handleIngestPdf}>
-                    <input
-                      placeholder="Optional title"
-                      value={pdfTitle}
-                      onChange={(event) => setPdfTitle(event.target.value)}
-                    />
-                    <input
-                      type="file"
-                      accept="application/pdf"
-                      onChange={(event) => setPdfFile(event.target.files?.[0] ?? null)}
-                      required
-                    />
-                    <button type="submit" disabled={!isAuthenticated}>
-                      Import PDF
-                    </button>
-                  </form>
-                </article>
-              </section>
-            </div>
-          )}
-
-          {workspacePage === "explore" && (
-            <div className="page-stack explore-stack">
-              <section className="grid two explore-grid explore-split-grid">
-                <article className="card explore-semantic-card">
-                  <h2>Semantic Search (Qwen-grounded)</h2>
-                  <p className="muted">Get a model-written answer using your most relevant notes as context.</p>
-                  <form onSubmit={handleSearch}>
-                    <input
-                      placeholder="Ask in natural language"
-                      value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
-                      required
-                    />
-                    <div className="search-controls-row">
-                      <label className="search-control-field">
-                        <span>Answer length</span>
-                        <select
-                          value={searchResponseLength}
-                          onChange={(event) =>
-                            setSearchResponseLength(event.target.value as "short" | "medium" | "long")
-                          }
-                        >
-                          <option value="short">Short</option>
-                          <option value="medium">Medium</option>
-                          <option value="long">Long</option>
-                        </select>
-                      </label>
-                    </div>
-                    <button type="submit" disabled={!isAuthenticated}>
-                      Generate Answer
-                    </button>
-                  </form>
-
-                  {searchAnswer && (
-                    <div className="answer-box">
-                      <p>{searchAnswer}</p>
-                      <small>
-                        confidence: {searchConfidence ?? 0}
-                        {searchSources.length > 0
-                          ? ` | sources: ${searchSources.map((note) => note.title).join(", ")}`
-                          : ""}
-                      </small>
-                    </div>
-                  )}
-
-                  <div className="list compact">
-                    {searchResults.length === 0 && <p className="muted">No semantic matches yet.</p>}
-                    {searchResults.map((result) => (
-                      <article key={result.note_id} className="item">
-                        <h3>{result.title}</h3>
-                        <p>{result.excerpt}</p>
-                        <small>score: {result.similarity_score}</small>
-                        <button
-                          type="button"
-                          className="button-neutral"
-                          onClick={() => {
-                            setActiveNoteId(result.note_id);
-                            navigateTo("/capture");
-                          }}
-                        >
-                          Open Note
-                        </button>
-                      </article>
-                    ))}
-                  </div>
-                </article>
-
-                <article className="card explore-browser-card">
-                  <h2>Browse Notes</h2>
-                  <div className="browser-filters">
-                    <input
-                      placeholder="Search title/content/source"
-                      value={browseQuery}
-                      onChange={(event) => setBrowseQuery(event.target.value)}
-                    />
-                    <select value={browseSource} onChange={(event) => setBrowseSource(event.target.value as "all" | "manual" | "url" | "pdf")}> 
-                      <option value="all">All Sources</option>
-                      <option value="manual">Manual</option>
-                      <option value="url">URL</option>
-                      <option value="pdf">PDF</option>
-                    </select>
-                    <div className="date-range-inline">
-                      <label>
-                        <span>From</span>
-                        <input type="date" value={browseFromDate} onChange={(event) => setBrowseFromDate(event.target.value)} />
-                      </label>
-                      <label>
-                        <span>To</span>
-                        <input type="date" value={browseToDate} onChange={(event) => setBrowseToDate(event.target.value)} />
-                      </label>
-                    </div>
-                    <select
-                      value={browseSort}
-                      onChange={(event) =>
-                        setBrowseSort(event.target.value as "updated_desc" | "updated_asc" | "title_asc" | "source")
-                      }
-                    >
-                      <option value="updated_desc">Newest first</option>
-                      <option value="updated_asc">Oldest first</option>
-                      <option value="title_asc">Title A-Z</option>
-                      <option value="source">Source type</option>
-                    </select>
-                  </div>
-                  <p className="muted">Showing {filteredBrowseNotes.length} of {notes.length} notes.</p>
-                  <div className="list notes-scroll">
-                    {filteredBrowseNotes.length === 0 && <p className="muted">No notes match current filters.</p>}
-                    {filteredBrowseNotes.map((note) => (
-                      <article key={note.id} className="item">
-                        <h3>{note.title}</h3>
-                        <p>{note.content.slice(0, 200)}</p>
-                        <small>source: {note.source_type} | updated: {new Date(note.updated_at).toLocaleString()}</small>
-                        <button
-                          type="button"
-                          className="button-neutral"
-                          onClick={() => {
-                            setActiveNoteId(note.id);
-                            navigateTo("/capture");
-                          }}
-                        >
-                          Open Note
-                        </button>
-                      </article>
-                    ))}
-                  </div>
-                </article>
-              </section>
-            </div>
-          )}
-
-      {workspacePage === "graph" && (
-        <section className="card">
-        <div className="row between">
-          <h2>Graph and Analytics</h2>
-          <div className="row">
-            <button onClick={handleLoadInsights} disabled={!isAuthenticated}>
-              Load Insights
-            </button>
-            <button onClick={handleRunClusters} disabled={!isAuthenticated}>
-              Discover Connections
-            </button>
-          </div>
-        </div>
-
-        <div className="grid three">
-          <article className="metric">
-            <h3>Total Notes</h3>
-            <p>{dashboard?.total_notes ?? 0}</p>
-          </article>
-          <article className="metric">
-            <h3>This Week</h3>
-            <p>{dashboard?.notes_added_this_week ?? 0}</p>
-          </article>
-          <article className="metric">
-            <h3>Query Events</h3>
-            <p>{dashboard?.questions_count ?? 0}</p>
-          </article>
-        </div>
-
-        <div className="grid two">
-          <article className="card inset">
-            <h3>Graph Summary</h3>
-            <p>Nodes: {graph?.nodes.length ?? 0}</p>
-            <p>Edges: {graph?.edges.length ?? 0}</p>
-          </article>
-
-          <article className="card inset">
-            <h3>Cluster Summary</h3>
-            <p>Suggested k: {clusters?.suggested_k ?? 0}</p>
-            <p>Clusters: {clusters?.clusters.length ?? 0}</p>
-          </article>
-        </div>
-
-        <div className="graph-toolbar">
-          <div className="graph-toolbar-top">
-            <input
-              placeholder="Filter nodes by title, tag, or source"
-              value={nodeSearch}
-              onChange={(event) => setNodeSearch(event.target.value)}
-              disabled={!isAuthenticated}
-            />
-            <label className="graph-node-picker">
-              <span>Pick node</span>
-              <select
-                value={focusNodeId}
-                onChange={(event) => setFocusNodeId(event.target.value)}
-                disabled={!isAuthenticated || graphNodeOptions.length === 0}
-              >
-                <option value="">All nodes</option>
-                {graphNodeOptions.map((node) => (
-                  <option key={node.id} value={node.id}>
-                    {node.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-
-          <div className="graph-toolbar-bottom">
-            <div className="segmented graph-edge-tabs" role="tablist" aria-label="Edge filter">
-              <button
-                type="button"
-                className={edgeView === "all" ? "active" : ""}
-                onClick={() => setEdgeView("all")}
-              >
-                All Edges
+            <div className="hero-v2-ctas">
+              <button type="button" onClick={() => navigateTo("/capture")}>
+                Start Capturing
               </button>
-              <button
-                type="button"
-                className={edgeView === "ai" ? "active" : ""}
-                onClick={() => setEdgeView("ai")}
-              >
-                AI Links
-              </button>
-              <button
-                type="button"
-                className={edgeView === "manual" ? "active" : ""}
-                onClick={() => setEdgeView("manual")}
-              >
-                Manual Links
-              </button>
-            </div>
-
-            <div className="graph-toolbar-right">
-              <div className="segmented" role="tablist" aria-label="Graph render mode">
-                <button
-                  type="button"
-                  className={effectiveGraphMode === "3d" ? "active" : ""}
-                  onClick={() => handleToggleGraphMode("3d")}
-                  disabled={!has3DRenderer}
-                  title={has3DRenderer ? "Switch to 3D graph" : "3D renderer unavailable"}
-                >
-                  3D
-                </button>
-                <button
-                  type="button"
-                  className={effectiveGraphMode === "2d" ? "active" : ""}
-                  onClick={() => handleToggleGraphMode("2d")}
-                  disabled={!has2DRenderer}
-                  title={has2DRenderer ? "Switch to 2D graph" : "2D renderer loading"}
-                >
-                  2D
-                </button>
-              </div>
               <button
                 type="button"
                 className="button-neutral"
-                onClick={handleCenterGraph}
-                disabled={graphSceneData.nodes.length === 0}
-                title="Center graph in the canvas"
+                onClick={() => navigateTo("/explore")}
               >
-                Center Graph
+                Explore Your Notes
               </button>
             </div>
           </div>
-        </div>
-        <p className="muted graph-toggle-help">
-          Toggle graph mode: click <strong>3D</strong> for orbit/zoom view or <strong>2D</strong> for planar view. Use <strong>Center Graph</strong> anytime to recenter nodes inside the canvas.
-        </p>
 
-        {clusters && clusters.clusters.length > 0 && (
-          <div className="cluster-strip">
-            <button
-              type="button"
-              className={activeCluster === null ? "cluster-pill active" : "cluster-pill"}
-              onClick={() => setActiveCluster(null)}
-            >
-              All Clusters
-            </button>
-            {clusters.clusters.map((cluster, index) => (
-              <button
-                type="button"
-                key={`${cluster.label}-${index}`}
-                className={activeCluster === index ? "cluster-pill active" : "cluster-pill"}
-                onClick={() => setActiveCluster(index)}
-              >
-                {cluster.label} ({cluster.size})
+          {/* ContainerScroll dashboard reveal */}
+          <ContainerScroll
+            titleComponent={<></>}
+            className="hero-v2-scroll-container"
+          >
+            <MockDashboardUI />
+          </ContainerScroll>
+        </section>
+
+        {/* ═══ SECTION 2 — CAPTURE ═══ */}
+        <FeatureSection
+          label="Capture"
+          heading="Think freely. Structure later."
+          body="Noty Brain's block editor lets you capture thoughts, meeting notes, and ideas with slash commands, templates, and rich formatting — all saved instantly."
+          cta="Open Capture →"
+          ctaHref="/capture"
+          onNavigate={navigateTo}
+        >
+          <TiltCard className="tilt-card-shell">
+            <MockCaptureUI />
+          </TiltCard>
+        </FeatureSection>
+
+        {/* ═══ SECTION 3 — EXPLORE ═══ */}
+        <FeatureSection
+          label="Explore"
+          heading="Ask your notes anything."
+          body="Semantic search powered by AI retrieves the most relevant context from your knowledge base. Ask questions in plain language and get precise, sourced answers."
+          cta="Open Explore →"
+          ctaHref="/explore"
+          reverse
+          onNavigate={navigateTo}
+        >
+          <TiltCard className="tilt-card-shell">
+            <MockExploreUI />
+          </TiltCard>
+        </FeatureSection>
+
+        {/* ═══ SECTION 4 — GRAPH LAB ═══ */}
+        <FeatureSection
+          label="Graph Lab"
+          heading="See how your ideas connect."
+          body="The knowledge graph visualizes relationships between your notes automatically. Switch between 2D and 3D views to explore clusters, find gaps, and think spatially about your knowledge."
+          cta="Open Graph Lab →"
+          ctaHref="/graph"
+          onNavigate={navigateTo}
+        >
+          <TiltCard className="tilt-card-shell">
+            <MockGraphUI />
+          </TiltCard>
+        </FeatureSection>
+
+        {/* ═══ SECTION 5 — WELCOME BACK STRIP ═══ */}
+        <section className="welcome-strip">
+          <div className="welcome-strip-inner">
+            <h2 className="welcome-strip-heading">
+              Welcome back to Noty Brain
+            </h2>
+            <p className="welcome-strip-sub">
+              {profile?.display_name
+                ? `Good to see you, ${profile.display_name}.`
+                : "Jump right back into your workspace."}{" "}
+              You have <strong>{notes.length}</strong> notes and{" "}
+              <strong>{graph?.edges.length ?? 0}</strong> connections.
+            </p>
+
+            <div className="welcome-strip-actions">
+              <button type="button" className="button-neutral" onClick={handleRefreshWorkspace}>
+                Refresh State
               </button>
-            ))}
+              <button type="button" className="button-danger" onClick={handleSignOut}>
+                Sign Out
+              </button>
+            </div>
+
+            {recentNotes.length > 0 && (
+              <div className="welcome-recent-grid">
+                {recentNotes.map((note) => (
+                  <TiltCard key={note.id} className="welcome-note-card-tilt">
+                    <button
+                      type="button"
+                      className="welcome-note-card"
+                      onClick={() => {
+                        setActiveNoteId(note.id);
+                        navigateTo("/capture");
+                      }}
+                    >
+                      <span className="welcome-note-emoji">
+                        {note.icon_emoji || "📝"}
+                      </span>
+                      <strong className="welcome-note-title">
+                        {note.title}
+                      </strong>
+                      <small className="welcome-note-date">
+                        {new Date(note.updated_at).toLocaleDateString()}
+                      </small>
+                    </button>
+                  </TiltCard>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <TemplatePickerModal
+          open={showTemplatePicker}
+          templates={templates}
+          onClose={() => setShowTemplatePicker(false)}
+          onSelectTemplate={startDraftWithTemplate}
+        />
+
+        <CommandPalette
+          open={showCommandPalette}
+          notes={notes}
+          templates={templates}
+          onClose={() => setShowCommandPalette(false)}
+          onOpenNote={(noteId) => {
+            setActiveNoteId(noteId);
+            navigateTo("/capture");
+          }}
+          onAction={handleCommandAction}
+        />
+
+        <footer className="status">Status: {status}</footer>
+      </div>
+    );
+  }
+
+  /* ──────────────────── WORKSPACE PAGES (Capture / Explore / Graph) ──────────────────── */
+  return (
+    <div className="shell workspace-shell workspace-page-shell">
+      <AnimatedNavFramer onNavigate={navigateTo} currentPage={workspacePage} />
+
+      <div className="workspace-page-body">
+        {/* ── CAPTURE PAGE ── */}
+        {workspacePage === "capture" && (
+          <div className="workspace-body">
+            <WorkspaceSidebar
+              notes={notes}
+              activeNoteId={activeNoteId}
+              onSelectNote={(noteId) => setActiveNoteId(noteId)}
+              onCreateNote={() => setShowTemplatePicker(true)}
+              onRenameNote={handleRenameNote}
+              onDeleteNote={handleDeleteNote}
+              onDuplicateNote={handleDuplicateNote}
+              onUpdateEmoji={handleUpdateEmoji}
+            />
+
+            <div className="workspace-content">
+              <div className="page-stack capture-stack">
+                <section className="card capture-editor-card">
+                  <div className="row between">
+                    <h2>Block Editor</h2>
+                    <div className="row">
+                      <button type="button" className="button-neutral" onClick={() => setShowTemplatePicker(true)}>
+                        Templates
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveActiveNote}
+                        disabled={Boolean(noteActionPendingId && activeNoteId === noteActionPendingId)}
+                      >
+                        Save Note
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="row">
+                    <input
+                      className="note-emoji-input"
+                      value={editorIcon}
+                      onChange={(event) => setEditorIcon(event.target.value || "📝")}
+                      maxLength={4}
+                    />
+                    <input
+                      placeholder="Note title"
+                      value={editorTitle}
+                      onChange={(event) => {
+                        setEditorTitle(event.target.value);
+                        setEditorDirty(true);
+                      }}
+                    />
+                  </div>
+
+                  <BlockEditor
+                    key={`${activeNoteId || "new"}-${editorKeyVersion}`}
+                    initialContent={editorJson}
+                    availableNotes={notes}
+                    onUpdate={({ json, text }) => {
+                      setEditorJson(json);
+                      setEditorText(text);
+                      setEditorDirty(true);
+                    }}
+                    onBacklinkSelect={handleInsertBacklink}
+                  />
+
+                  <div className="row template-save-row">
+                    <input
+                      placeholder="Save current note as template"
+                      value={templateNameDraft}
+                      onChange={(event) => setTemplateNameDraft(event.target.value)}
+                    />
+                    <button type="button" className="button-neutral" onClick={handleSaveTemplate}>
+                      Save Template
+                    </button>
+                  </div>
+                </section>
+
+                <section className="grid two capture-ingest-grid">
+                  <article className="card ingest-card ingest-url-card">
+                    <h2>Import URL</h2>
+                    <form onSubmit={handleIngestUrl}>
+                      <input
+                        type="url"
+                        placeholder="https://example.com/article"
+                        value={urlToIngest}
+                        onChange={(event) => setUrlToIngest(event.target.value)}
+                        required
+                      />
+                      <input
+                        placeholder="Optional title override"
+                        value={urlTitle}
+                        onChange={(event) => setUrlTitle(event.target.value)}
+                      />
+                      <button type="submit" disabled={!isAuthenticated}>
+                        Import URL
+                      </button>
+                    </form>
+                  </article>
+
+                  <article className="card ingest-card ingest-pdf-card">
+                    <h2>Import PDF</h2>
+                    <form onSubmit={handleIngestPdf}>
+                      <input
+                        placeholder="Optional title"
+                        value={pdfTitle}
+                        onChange={(event) => setPdfTitle(event.target.value)}
+                      />
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        onChange={(event) => setPdfFile(event.target.files?.[0] ?? null)}
+                        required
+                      />
+                      <button type="submit" disabled={!isAuthenticated}>
+                        Import PDF
+                      </button>
+                    </form>
+                  </article>
+                </section>
+              </div>
+            </div>
+
+            <IntelligencePanel
+              activeNote={activeNote}
+              backlinks={backlinks}
+              graph={graph}
+              onOpenNote={(noteId) => {
+                setActiveNoteId(noteId);
+              }}
+            />
           </div>
         )}
 
-        <div className="graph-grid">
-          <article className="card inset graph-canvas-card">
-            <h3>3D Knowledge Graph</h3>
-            <p className="muted">
-              Rotate and zoom to inspect note neighborhoods. Click a node to focus camera and inspect
-              linked details.
-            </p>
-            <div className="graph-container" ref={graphStageRef}>
-              {graphSceneData.nodes.length === 0 ? (
-                <p className="muted graph-empty">
-                  No graph nodes to render. Load insights, create notes, and run cluster analysis first.
-                </p>
-              ) : graphViewport.width === 0 || graphViewport.height === 0 ? (
-                <p className="muted graph-empty">Preparing graph viewport...</p>
-              ) : (
-                <>
-                  {graphLibError ? (
-                    <div className="fallback-wrap">
-                      <p className="muted graph-empty">{graphLibError}</p>
-                      <svg
-                        className="fallback-graph-svg"
-                        viewBox={`0 0 ${fallbackLayout.width} ${fallbackLayout.height}`}
-                        role="img"
-                        aria-label="Fallback knowledge graph"
-                      >
-                        {fallbackLayout.links.map((link) => (
-                          <line
-                            key={`f-link-${link.id}`}
-                            x1={link.sx}
-                            y1={link.sy}
-                            x2={link.tx}
-                            y2={link.ty}
-                            stroke={link.is_ai_generated ? "#2a8f86" : "#8a6d3b"}
-                            strokeWidth={link.is_ai_generated ? 2 : 1.2}
-                            strokeOpacity={0.58}
-                          />
-                        ))}
-                        {fallbackLayout.nodes.map((node) => (
-                          <g
-                            key={`f-node-${node.id}`}
-                            className="fallback-node"
-                            onClick={() => setSelectedNodeId(node.id)}
+        {/* ── EXPLORE PAGE ── */}
+        {workspacePage === "explore" && (
+          <div className="workspace-body workspace-body-explore">
+            <div className="workspace-content">
+              <div className="page-stack explore-stack">
+                <section className="grid two explore-grid explore-split-grid">
+                  <article className="card explore-semantic-card">
+                    <h2>Semantic Search (Qwen-grounded)</h2>
+                    <p className="muted">Get a model-written answer using your most relevant notes as context.</p>
+                    <form onSubmit={handleSearch}>
+                      <input
+                        placeholder="Ask in natural language"
+                        value={searchQuery}
+                        onChange={(event) => setSearchQuery(event.target.value)}
+                        required
+                      />
+                      <div className="search-controls-row">
+                        <label className="search-control-field">
+                          <span>Answer length</span>
+                          <select
+                            value={searchResponseLength}
+                            onChange={(event) =>
+                              setSearchResponseLength(event.target.value as "short" | "medium" | "long")
+                            }
                           >
-                            <circle cx={node.px} cy={node.py} r={node.radius} fill={node.color} />
-                            <text x={node.px} y={node.py - node.radius - 5} textAnchor="middle">
-                              {truncateText(node.title, 24)}
-                            </text>
-                          </g>
-                        ))}
-                      </svg>
-                    </div>
-                  ) : !ForceGraph3DComponent && !ForceGraph2DComponent ? (
-                    <p className="muted graph-empty">Loading graph renderer...</p>
-                  ) : effectiveGraphMode === "3d" && ForceGraph3DComponent ? (
-                    <ForceGraph3DComponent
-                      ref={graphRef}
-                      graphData={graphSceneData}
-                      width={graphViewport.width}
-                      height={graphViewport.height}
-                      linkDistance={graphLinkDistance}
-                      linkStrength={graphLinkStrength}
-                      d3AlphaDecay={0.04}
-                      d3VelocityDecay={0.36}
-                      nodeLabel={(node: object) => {
-                        const item = node as GraphNode3D;
-                        return `${item.title}\nSource: ${sourceTypeLabel(item.source_type)}\nTags: ${item.tags.join(", ") || "none"}`;
-                      }}
-                      nodeColor={(node: object) => (node as GraphNode3D).color}
-                      nodeVal={(node: object) => (node as GraphNode3D).val}
-                      linkColor={(link: object) => ((link as GraphLink3D).is_ai_generated ? "#2a8f86" : "#8a6d3b")}
-                      linkWidth={(link: object) => ((link as GraphLink3D).is_ai_generated ? 1.6 : 0.9)}
-                      linkDirectionalParticles={(link: object) => ((link as GraphLink3D).is_ai_generated ? 2 : 0)}
-                      linkDirectionalParticleWidth={1.4}
-                      linkDirectionalParticleSpeed={0.008}
-                      showNavInfo={false}
-                      onNodeClick={handleNodeClick}
-                      backgroundColor="rgba(0,0,0,0)"
-                    />
-                  ) : ForceGraph2DComponent ? (
-                    <ForceGraph2DComponent
-                      ref={graphRef}
-                      graphData={graphSceneData}
-                      width={graphViewport.width}
-                      height={graphViewport.height}
-                      linkDistance={graphLinkDistance}
-                      linkStrength={graphLinkStrength}
-                      d3AlphaDecay={0.04}
-                      nodeLabel={(node: object) => {
-                        const item = node as GraphNode3D;
-                        return `${item.title}\nSource: ${sourceTypeLabel(item.source_type)}\nTags: ${item.tags.join(", ") || "none"}`;
-                      }}
-                      nodeVal={(node: object) => (node as GraphNode3D).val}
-                      nodeColor={(node: object) => (node as GraphNode3D).color}
-                      linkColor={(link: object) => ((link as GraphLink3D).is_ai_generated ? "#2a8f86" : "#8a6d3b")}
-                      linkWidth={(link: object) => ((link as GraphLink3D).is_ai_generated ? 2 : 1)}
-                      onNodeClick={handleNodeClick}
-                      cooldownTicks={120}
-                      d3VelocityDecay={0.28}
-                      backgroundColor="rgba(0,0,0,0)"
-                    />
-                  ) : (
-                    <p className="muted graph-empty">Loading graph renderer...</p>
-                  )}
-                </>
-              )}
-            </div>
-          </article>
-
-          <aside className="card inset graph-sidepanel">
-            <h3>Selection Inspector</h3>
-            {selectedNode ? (
-              <div className="node-detail">
-                <p className="node-title">{selectedNode.title}</p>
-                <p>
-                  Source: <strong>{sourceTypeLabel(selectedNode.source_type)}</strong>
-                </p>
-                <p>
-                  Cluster: <strong>{selectedNode.clusterIndex >= 0 ? selectedNode.clusterIndex + 1 : "Unassigned"}</strong>
-                </p>
-                <p>
-                  Tags: <strong>{selectedNode.tags.join(", ") || "none"}</strong>
-                </p>
-                <p>
-                  Degree weight: <strong>{selectedNode.val.toFixed(1)}</strong>
-                </p>
-              </div>
-            ) : (
-              <p className="muted">Click a node in the 3D graph to inspect its details.</p>
-            )}
-
-            <h3>Cluster Distribution</h3>
-            {!clusters || clusters.clusters.length === 0 ? (
-              <p className="muted">Run Discover Connections to generate cluster distribution.</p>
-            ) : (
-              <div className="cluster-bars">
-                {clusters.clusters.map((cluster, index) => {
-                  const widthPercent = (cluster.size / maxClusterSize) * 100;
-                  return (
-                    <article key={`${cluster.label}-bar-${index}`} className="cluster-bar-row">
-                      <div className="cluster-bar-head">
-                        <span>{truncateText(cluster.label, 38)}</span>
-                        <span>{cluster.size}</span>
+                            <option value="short">Short</option>
+                            <option value="medium">Medium</option>
+                            <option value="long">Long</option>
+                          </select>
+                        </label>
                       </div>
-                      <div className="cluster-bar-track">
-                        <span
-                          className="cluster-bar-fill"
-                          style={{
-                            width: `${Math.max(10, widthPercent)}%`,
-                            background: CLUSTER_PALETTE[index % CLUSTER_PALETTE.length],
-                          }}
-                        />
+                      <button type="submit" disabled={!isAuthenticated}>
+                        Generate Answer
+                      </button>
+                    </form>
+
+                    {searchAnswer && (
+                      <div className="answer-box">
+                        <p>{searchAnswer}</p>
+                        <small>
+                          confidence: {searchConfidence ?? 0}
+                          {searchSources.length > 0
+                            ? ` | sources: ${searchSources.map((note) => note.title).join(", ")}`
+                            : ""}
+                        </small>
+                      </div>
+                    )}
+
+                    <div className="list compact">
+                      {searchResults.length === 0 && <p className="muted">No semantic matches yet.</p>}
+                      {searchResults.map((result) => (
+                        <article key={result.note_id} className="item">
+                          <h3>{result.title}</h3>
+                          <p>{result.excerpt}</p>
+                          <small>score: {result.similarity_score}</small>
+                          <button
+                            type="button"
+                            className="button-neutral"
+                            onClick={() => {
+                              setActiveNoteId(result.note_id);
+                              navigateTo("/capture");
+                            }}
+                          >
+                            Open Note
+                          </button>
+                        </article>
+                      ))}
+                    </div>
+                  </article>
+
+                  <article className="card explore-browser-card">
+                    <h2>Browse Notes</h2>
+                    <div className="browser-filters">
+                      <input
+                        placeholder="Search title/content/source"
+                        value={browseQuery}
+                        onChange={(event) => setBrowseQuery(event.target.value)}
+                      />
+                      <select value={browseSource} onChange={(event) => setBrowseSource(event.target.value as "all" | "manual" | "url" | "pdf")}>
+                        <option value="all">All Sources</option>
+                        <option value="manual">Manual</option>
+                        <option value="url">URL</option>
+                        <option value="pdf">PDF</option>
+                      </select>
+                      <div className="date-range-inline">
+                        <label>
+                          <span>From</span>
+                          <input type="date" value={browseFromDate} onChange={(event) => setBrowseFromDate(event.target.value)} />
+                        </label>
+                        <label>
+                          <span>To</span>
+                          <input type="date" value={browseToDate} onChange={(event) => setBrowseToDate(event.target.value)} />
+                        </label>
+                      </div>
+                      <select
+                        value={browseSort}
+                        onChange={(event) =>
+                          setBrowseSort(event.target.value as "updated_desc" | "updated_asc" | "title_asc" | "source")
+                        }
+                      >
+                        <option value="updated_desc">Newest first</option>
+                        <option value="updated_asc">Oldest first</option>
+                        <option value="title_asc">Title A-Z</option>
+                        <option value="source">Source type</option>
+                      </select>
+                    </div>
+                    <p className="muted">Showing {filteredBrowseNotes.length} of {notes.length} notes.</p>
+                    <div className="list notes-scroll">
+                      {filteredBrowseNotes.length === 0 && <p className="muted">No notes match current filters.</p>}
+                      {filteredBrowseNotes.map((note) => (
+                        <article key={note.id} className="item">
+                          <h3>{note.title}</h3>
+                          <p>{note.content.slice(0, 200)}</p>
+                          <small>source: {note.source_type} | updated: {new Date(note.updated_at).toLocaleString()}</small>
+                          <button
+                            type="button"
+                            className="button-neutral"
+                            onClick={() => {
+                              setActiveNoteId(note.id);
+                              navigateTo("/capture");
+                            }}
+                          >
+                            Open Note
+                          </button>
+                        </article>
+                      ))}
+                    </div>
+                  </article>
+                </section>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── GRAPH PAGE ── */}
+        {workspacePage === "graph" && (
+          <div className="workspace-body workspace-body-graph">
+            <div className="workspace-content">
+              <div className="page-stack">
+                <section className="card">
+                  <div className="row between">
+                    <h2>Graph and Analytics</h2>
+                    <div className="row">
+                      <button onClick={handleLoadInsights} disabled={!isAuthenticated}>
+                        Load Insights
+                      </button>
+                      <button onClick={handleRunClusters} disabled={!isAuthenticated}>
+                        Discover Connections
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid three">
+                    <article className="metric">
+                      <h3>Total Notes</h3>
+                      <p>{dashboard?.total_notes ?? 0}</p>
+                    </article>
+                    <article className="metric">
+                      <h3>This Week</h3>
+                      <p>{dashboard?.notes_added_this_week ?? 0}</p>
+                    </article>
+                    <article className="metric">
+                      <h3>Query Events</h3>
+                      <p>{dashboard?.questions_count ?? 0}</p>
+                    </article>
+                  </div>
+
+                  <div className="grid two">
+                    <article className="card inset">
+                      <h3>Graph Summary</h3>
+                      <p>Nodes: {graph?.nodes.length ?? 0}</p>
+                      <p>Edges: {graph?.edges.length ?? 0}</p>
+                    </article>
+
+                    <article className="card inset">
+                      <h3>Cluster Summary</h3>
+                      <p>Suggested k: {clusters?.suggested_k ?? 0}</p>
+                      <p>Clusters: {clusters?.clusters.length ?? 0}</p>
+                    </article>
+                  </div>
+
+                  <div className="graph-toolbar">
+                    <div className="graph-toolbar-top">
+                      <input
+                        placeholder="Filter nodes by title, tag, or source"
+                        value={nodeSearch}
+                        onChange={(event) => setNodeSearch(event.target.value)}
+                        disabled={!isAuthenticated}
+                      />
+                      <label className="graph-node-picker">
+                        <span>Pick node</span>
+                        <select
+                          value={focusNodeId}
+                          onChange={(event) => setFocusNodeId(event.target.value)}
+                          disabled={!isAuthenticated || graphNodeOptions.length === 0}
+                        >
+                          <option value="">All nodes</option>
+                          {graphNodeOptions.map((node) => (
+                            <option key={node.id} value={node.id}>
+                              {node.title}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="graph-toolbar-bottom">
+                      <div className="segmented graph-edge-tabs" role="tablist" aria-label="Edge filter">
+                        <button
+                          type="button"
+                          className={edgeView === "all" ? "active" : ""}
+                          onClick={() => setEdgeView("all")}
+                        >
+                          All Edges
+                        </button>
+                        <button
+                          type="button"
+                          className={edgeView === "ai" ? "active" : ""}
+                          onClick={() => setEdgeView("ai")}
+                        >
+                          AI Links
+                        </button>
+                        <button
+                          type="button"
+                          className={edgeView === "manual" ? "active" : ""}
+                          onClick={() => setEdgeView("manual")}
+                        >
+                          Manual Links
+                        </button>
+                      </div>
+
+                      <div className="graph-toolbar-right">
+                        <div className="segmented" role="tablist" aria-label="Graph render mode">
+                          <button
+                            type="button"
+                            className={effectiveGraphMode === "3d" ? "active" : ""}
+                            onClick={() => handleToggleGraphMode("3d")}
+                            disabled={!has3DRenderer}
+                            title={has3DRenderer ? "Switch to 3D graph" : "3D renderer unavailable"}
+                          >
+                            3D
+                          </button>
+                          <button
+                            type="button"
+                            className={effectiveGraphMode === "2d" ? "active" : ""}
+                            onClick={() => handleToggleGraphMode("2d")}
+                            disabled={!has2DRenderer}
+                            title={has2DRenderer ? "Switch to 2D graph" : "2D renderer loading"}
+                          >
+                            2D
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          className="button-neutral"
+                          onClick={handleCenterGraph}
+                          disabled={graphSceneData.nodes.length === 0}
+                          title="Center graph in the canvas"
+                        >
+                          Center Graph
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="muted graph-toggle-help">
+                    Toggle graph mode: click <strong>3D</strong> for orbit/zoom view or <strong>2D</strong> for planar view. Use <strong>Center Graph</strong> anytime to recenter nodes inside the canvas.
+                  </p>
+
+                  {clusters && clusters.clusters.length > 0 && (
+                    <div className="cluster-strip">
+                      <button
+                        type="button"
+                        className={activeCluster === null ? "cluster-pill active" : "cluster-pill"}
+                        onClick={() => setActiveCluster(null)}
+                      >
+                        All Clusters
+                      </button>
+                      {clusters.clusters.map((cluster, index) => (
+                        <button
+                          type="button"
+                          key={`${cluster.label}-${index}`}
+                          className={activeCluster === index ? "cluster-pill active" : "cluster-pill"}
+                          onClick={() => setActiveCluster(index)}
+                        >
+                          {cluster.label} ({cluster.size})
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="graph-grid">
+                    <article className="card inset graph-canvas-card">
+                      <h3>3D Knowledge Graph</h3>
+                      <p className="muted">
+                        Rotate and zoom to inspect note neighborhoods. Click a node to focus camera and inspect
+                        linked details.
+                      </p>
+                      <div className="graph-container" ref={graphStageRef}>
+                        {graphSceneData.nodes.length === 0 ? (
+                          <p className="muted graph-empty">
+                            No graph nodes to render. Load insights, create notes, and run cluster analysis first.
+                          </p>
+                        ) : graphViewport.width === 0 || graphViewport.height === 0 ? (
+                          <p className="muted graph-empty">Preparing graph viewport...</p>
+                        ) : (
+                          <>
+                            {graphLibError ? (
+                              <div className="fallback-wrap">
+                                <p className="muted graph-empty">{graphLibError}</p>
+                                <svg
+                                  className="fallback-graph-svg"
+                                  viewBox={`0 0 ${fallbackLayout.width} ${fallbackLayout.height}`}
+                                  role="img"
+                                  aria-label="Fallback knowledge graph"
+                                >
+                                  {fallbackLayout.links.map((link) => (
+                                    <line
+                                      key={`f-link-${link.id}`}
+                                      x1={link.sx}
+                                      y1={link.sy}
+                                      x2={link.tx}
+                                      y2={link.ty}
+                                      stroke={link.is_ai_generated ? "#2a8f86" : "#8a6d3b"}
+                                      strokeWidth={link.is_ai_generated ? 2 : 1.2}
+                                      strokeOpacity={0.58}
+                                    />
+                                  ))}
+                                  {fallbackLayout.nodes.map((node) => (
+                                    <g
+                                      key={`f-node-${node.id}`}
+                                      className="fallback-node"
+                                      onClick={() => setSelectedNodeId(node.id)}
+                                    >
+                                      <circle cx={node.px} cy={node.py} r={node.radius} fill={node.color} />
+                                      <text x={node.px} y={node.py - node.radius - 5} textAnchor="middle">
+                                        {truncateText(node.title, 24)}
+                                      </text>
+                                    </g>
+                                  ))}
+                                </svg>
+                              </div>
+                            ) : !ForceGraph3DComponent && !ForceGraph2DComponent ? (
+                              <p className="muted graph-empty">Loading graph renderer...</p>
+                            ) : effectiveGraphMode === "3d" && ForceGraph3DComponent ? (
+                              <ForceGraph3DComponent
+                                ref={graphRef}
+                                graphData={graphSceneData}
+                                width={graphViewport.width}
+                                height={graphViewport.height}
+                                linkDistance={graphLinkDistance}
+                                linkStrength={graphLinkStrength}
+                                d3AlphaDecay={0.04}
+                                d3VelocityDecay={0.36}
+                                nodeLabel={(node: object) => {
+                                  const item = node as GraphNode3D;
+                                  return `${item.title}\nSource: ${sourceTypeLabel(item.source_type)}\nTags: ${item.tags.join(", ") || "none"}`;
+                                }}
+                                nodeColor={(node: object) => (node as GraphNode3D).color}
+                                nodeVal={(node: object) => (node as GraphNode3D).val}
+                                linkColor={(link: object) => ((link as GraphLink3D).is_ai_generated ? "#2a8f86" : "#8a6d3b")}
+                                linkWidth={(link: object) => ((link as GraphLink3D).is_ai_generated ? 1.6 : 0.9)}
+                                linkDirectionalParticles={(link: object) => ((link as GraphLink3D).is_ai_generated ? 2 : 0)}
+                                linkDirectionalParticleWidth={1.4}
+                                linkDirectionalParticleSpeed={0.008}
+                                showNavInfo={false}
+                                onNodeClick={handleNodeClick}
+                                backgroundColor="rgba(0,0,0,0)"
+                              />
+                            ) : ForceGraph2DComponent ? (
+                              <ForceGraph2DComponent
+                                ref={graphRef}
+                                graphData={graphSceneData}
+                                width={graphViewport.width}
+                                height={graphViewport.height}
+                                linkDistance={graphLinkDistance}
+                                linkStrength={graphLinkStrength}
+                                d3AlphaDecay={0.04}
+                                nodeLabel={(node: object) => {
+                                  const item = node as GraphNode3D;
+                                  return `${item.title}\nSource: ${sourceTypeLabel(item.source_type)}\nTags: ${item.tags.join(", ") || "none"}`;
+                                }}
+                                nodeVal={(node: object) => (node as GraphNode3D).val}
+                                nodeColor={(node: object) => (node as GraphNode3D).color}
+                                linkColor={(link: object) => ((link as GraphLink3D).is_ai_generated ? "#2a8f86" : "#8a6d3b")}
+                                linkWidth={(link: object) => ((link as GraphLink3D).is_ai_generated ? 2 : 1)}
+                                onNodeClick={handleNodeClick}
+                                cooldownTicks={120}
+                                d3VelocityDecay={0.28}
+                                backgroundColor="rgba(0,0,0,0)"
+                              />
+                            ) : (
+                              <p className="muted graph-empty">Loading graph renderer...</p>
+                            )}
+                          </>
+                        )}
                       </div>
                     </article>
-                  );
-                })}
+
+                    <aside className="card inset graph-sidepanel">
+                      <h3>Selection Inspector</h3>
+                      {selectedNode ? (
+                        <div className="node-detail">
+                          <p className="node-title">{selectedNode.title}</p>
+                          <p>
+                            Source: <strong>{sourceTypeLabel(selectedNode.source_type)}</strong>
+                          </p>
+                          <p>
+                            Cluster: <strong>{selectedNode.clusterIndex >= 0 ? selectedNode.clusterIndex + 1 : "Unassigned"}</strong>
+                          </p>
+                          <p>
+                            Tags: <strong>{selectedNode.tags.join(", ") || "none"}</strong>
+                          </p>
+                          <p>
+                            Degree weight: <strong>{selectedNode.val.toFixed(1)}</strong>
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="muted">Click a node in the 3D graph to inspect its details.</p>
+                      )}
+
+                      <h3>Cluster Distribution</h3>
+                      {!clusters || clusters.clusters.length === 0 ? (
+                        <p className="muted">Run Discover Connections to generate cluster distribution.</p>
+                      ) : (
+                        <div className="cluster-bars">
+                          {clusters.clusters.map((cluster, index) => {
+                            const widthPercent = (cluster.size / maxClusterSize) * 100;
+                            return (
+                              <article key={`${cluster.label}-bar-${index}`} className="cluster-bar-row">
+                                <div className="cluster-bar-head">
+                                  <span>{truncateText(cluster.label, 38)}</span>
+                                  <span>{cluster.size}</span>
+                                </div>
+                                <div className="cluster-bar-track">
+                                  <span
+                                    className="cluster-bar-fill"
+                                    style={{
+                                      width: `${Math.max(10, widthPercent)}%`,
+                                      background: CLUSTER_PALETTE[index % CLUSTER_PALETTE.length],
+                                    }}
+                                  />
+                                </div>
+                              </article>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </aside>
+                  </div>
+                </section>
               </div>
-            )}
-          </aside>
-        </div>
-      </section>
-      )}
-
-        </main>
-
-        {workspacePage === "capture" && (
-          <IntelligencePanel
-            activeNote={activeNote}
-            backlinks={backlinks}
-            graph={graph}
-            onOpenNote={(noteId) => {
-              setActiveNoteId(noteId);
-              navigateTo("/capture");
-            }}
-          />
+            </div>
+          </div>
         )}
       </div>
 
