@@ -35,6 +35,7 @@ import type {
 import { BlockEditor } from "./components/editor/BlockEditor";
 import { EMPTY_DOC, jsonToPlainText, plainTextToDoc, sanitizeEditorJson } from "./components/editor/richText";
 import { CommandPalette } from "./components/workspace/CommandPalette";
+import { SoftwareGraph3DCanvas } from "./components/workspace/SoftwareGraph3DCanvas";
 import { TemplatePickerModal } from "./components/workspace/TemplatePickerModal";
 import { AnimatedNavFramer } from "./components/ui/navigation-menu";
 import { NoteParticleCanvas } from "./components/ui/NoteParticleCanvas.tsx";
@@ -407,6 +408,7 @@ function App() {
   const [forceGraph2D, setForceGraph2D] = useState<GraphRenderer | null>(null);
   const [forceGraph3D, setForceGraph3D] = useState<GraphRenderer | null>(null);
   const [graph3DRetryNonce, setGraph3DRetryNonce] = useState(0);
+  const [softwareGraph3DResetNonce, setSoftwareGraph3DResetNonce] = useState(0);
   const [graph3DRuntimeError, setGraph3DRuntimeError] = useState<string | null>(null);
   const [graphLibError, setGraphLibError] = useState<string | null>(null);
   const [nodeSearch, setNodeSearch] = useState("");
@@ -2118,9 +2120,13 @@ function App() {
   const handleGraph3DRuntimeError = (error: Error) => {
     const reason = error.message?.trim() || "WebGL context could not be created for 3D graph.";
     setGraph3DRuntimeError(reason);
-    setGraphMode("2d");
+    setGraphMode("3d");
     setGraph3DRetryNonce((current) => current + 1);
-    setStatus("3D view failed in this browser session. Switched to 2D view.");
+    setStatus("WebGL failed. Switched to software 3D renderer.");
+  };
+
+  const handleSoftwareGraphNodeClick = (nodeId: string) => {
+    setSelectedNodeId(nodeId);
   };
 
   const ForceGraph3DComponent = forceGraph3D;
@@ -2128,6 +2134,7 @@ function App() {
   const has3DRenderer = Boolean(ForceGraph3DComponent);
   const has2DRenderer = Boolean(ForceGraph2DComponent);
   const effectiveGraphMode: GraphRenderMode = graphMode;
+  const usingSoftware3D = effectiveGraphMode === "3d" && (!has3DRenderer || graph3DRuntimeError !== null);
 
   const resetSemanticOutput = () => {
     setSearchResults([]);
@@ -2181,32 +2188,40 @@ function App() {
   }, [effectiveGraphMode, graphViewport.height, graphViewport.width]);
 
   const handleToggleGraphMode = (mode: GraphRenderMode) => {
-    if (mode === "3d" && !has3DRenderer) {
-      setStatus("3D renderer is not available in this browser. Use 2D mode.");
+    if (mode === "3d") {
+      setGraphMode("3d");
+      setStatus(usingSoftware3D ? "Software 3D mode active." : "Graph mode set to 3D.");
       return;
     }
 
-    if (mode === "2d" && !has2DRenderer) {
+    if (!has2DRenderer && !graphLibError) {
       setStatus("2D renderer is still loading. Please wait a moment.");
       return;
     }
 
-    if (mode === "3d" && graph3DRuntimeError) {
-      setGraph3DRuntimeError(null);
-      setGraph3DRetryNonce((current) => current + 1);
+    setGraphMode("2d");
+    setStatus("Graph mode set to 2D.");
+  };
+
+  const handleRetryWebGL3D = () => {
+    if (!has3DRenderer) {
+      setStatus("WebGL renderer is unavailable in this browser. Staying on software 3D.");
+      return;
     }
 
-    setGraphMode(mode);
-    setStatus(
-      mode === "3d"
-        ? graph3DRuntimeError
-          ? "Retrying 3D view..."
-          : "Graph mode set to 3D."
-        : "Graph mode set to 2D.",
-    );
+    setGraph3DRuntimeError(null);
+    setGraph3DRetryNonce((current) => current + 1);
+    setGraphMode("3d");
+    setStatus("Retrying WebGL 3D renderer...");
   };
 
   const handleCenterGraph = () => {
+    if (effectiveGraphMode === "3d" && usingSoftware3D) {
+      setSoftwareGraph3DResetNonce((current) => current + 1);
+      setStatus("Software 3D camera recentered.");
+      return;
+    }
+
     const graphApi = graphRef.current;
     if (!graphApi) {
       return;
@@ -3420,7 +3435,6 @@ function App() {
                     type="button"
                     className={effectiveGraphMode === "3d" ? "graph-view-tab-button active" : "graph-view-tab-button"}
                     onClick={() => handleToggleGraphMode("3d")}
-                    disabled={!has3DRenderer}
                   >
                     {effectiveGraphMode === "3d" && <motion.span layoutId="graph-view-underline" className="graph-view-underline" />}
                     <span className={effectiveGraphMode === "3d" ? "graph-view-tab-label active-label" : "graph-view-tab-label"}>
@@ -3495,16 +3509,34 @@ function App() {
                   style={{ height: "520px", maxWidth: "100%" }}
                   ref={graphStageRef}
                 >
-                  {graph3DRuntimeError && effectiveGraphMode !== "3d" && (
-                    <p className="muted graph-empty">
-                      3D runtime unavailable in this browser session. Continue in 2D or click 3D View to retry.
-                    </p>
+                  {effectiveGraphMode === "3d" && usingSoftware3D && (
+                    <div className="graph-webgl-hint-row">
+                      <p className="muted graph-empty graph-soft3d-note">
+                        WebGL 3D is unavailable. Running software 3D mode for compatibility.
+                      </p>
+                      {has3DRenderer && (
+                        <button type="button" className="button-neutral graph-soft3d-retry" onClick={handleRetryWebGL3D}>
+                          Retry WebGL 3D
+                        </button>
+                      )}
+                    </div>
                   )}
                   <div className="relative w-full overflow-hidden graph-stage-frame" style={{ height: "100%", maxWidth: "100%" }}>
                     {graphSceneData.nodes.length === 0 ? (
                       <p className="muted graph-empty">No graph nodes to render. Load insights and create notes first.</p>
                     ) : graphViewport.width === 0 || graphViewport.height === 0 ? (
                       <p className="muted graph-empty">Preparing graph viewport...</p>
+                    ) : effectiveGraphMode === "3d" && usingSoftware3D ? (
+                      <SoftwareGraph3DCanvas
+                        width={graphViewport.width}
+                        height={graphViewport.height}
+                        nodes={graphSceneData.nodes}
+                        links={graphSceneData.links}
+                        selectedNodeId={selectedNodeId}
+                        resetNonce={softwareGraph3DResetNonce}
+                        reduceMotion={Boolean(reduceMotion)}
+                        onNodeClick={handleSoftwareGraphNodeClick}
+                      />
                     ) : graphLibError ? (
                       <div className="fallback-wrap">
                         <p className="muted graph-empty">{graphLibError}</p>
@@ -3545,7 +3577,7 @@ function App() {
                         onError={handleGraph3DRuntimeError}
                         fallback={
                           <p className="muted graph-empty">
-                            {graph3DRuntimeError ? `3D unavailable: ${graph3DRuntimeError}` : "3D view unavailable. Switch to 2D or retry 3D."}
+                            WebGL 3D failed. Switching to software 3D mode...
                           </p>
                         }
                       >
