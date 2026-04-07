@@ -418,11 +418,13 @@ function App() {
   const [activeCluster, setActiveCluster] = useState<number | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [routePath, setRoutePath] = useState(() => window.location.pathname || "/login");
+  const [shouldScrollToEditor, setShouldScrollToEditor] = useState(false);
 
   const graphRef = useRef<any>(undefined);
   const graphStageRef = useRef<HTMLDivElement | null>(null);
   const signInWaveCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
+  const captureEditorFocusRef = useRef<HTMLElement | null>(null);
   const [graphViewport, setGraphViewport] = useState({ width: 0, height: 0 });
   const webglSupport = useMemo(() => detectWebGLSupport(), []);
   const isWebGLSupported = webglSupport.supported;
@@ -1360,13 +1362,33 @@ function App() {
     setEditorTitle(note.title);
     setEditorIcon(note.icon_emoji || "📝");
     const sanitizedJson = sanitizeEditorJson(note.content_json);
-    const hasUsableJson = Array.isArray(sanitizedJson.content) && sanitizedJson.content.length > 0;
-    const nextJson = hasUsableJson ? sanitizedJson : plainTextToDoc(note.content);
+    const extractedJsonText = jsonToPlainText(sanitizedJson).trim();
+    const hasUsableJson =
+      Array.isArray(sanitizedJson.content) && sanitizedJson.content.length > 0 && extractedJsonText.length > 0;
+    const fallbackText = note.content.trim().length > 0 ? note.content : extractedJsonText;
+    const nextJson = hasUsableJson ? sanitizedJson : plainTextToDoc(fallbackText);
     setEditorJson(nextJson);
-    setEditorText(note.content || jsonToPlainText(nextJson));
+    setEditorText(fallbackText || jsonToPlainText(nextJson));
     setEditorDirty(false);
     setIsDraftMode(false);
   };
+
+  useEffect(() => {
+    if (!shouldScrollToEditor || workspacePage !== "capture") {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      const editorCard = captureEditorFocusRef.current;
+      editorCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+      const editorSurface = editorCard?.querySelector(".editor-surface") as HTMLElement | null;
+      editorSurface?.focus();
+      setShouldScrollToEditor(false);
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [shouldScrollToEditor, workspacePage, activeNoteId]);
 
   useEffect(() => {
     if (workspacePage !== "capture") {
@@ -1741,6 +1763,7 @@ function App() {
 
   const openNoteForEditing = async (noteId: string) => {
     setIsDraftMode(false);
+    setShouldScrollToEditor(true);
 
     const existingNote = notes.find((note) => note.id === noteId);
     if (existingNote) {
@@ -1776,6 +1799,7 @@ function App() {
     setNotes((current) => [imported, ...current.filter((note) => note.id !== imported.id)]);
     setActiveNoteId(imported.id);
     hydrateEditorFromNote(imported);
+    setShouldScrollToEditor(true);
     navigateTo("/capture");
   };
 
@@ -2758,7 +2782,7 @@ function App() {
               transition={inViewTransition}
             >
               <div className="flow-inner">
-                <article className="capture-editor-focus card">
+                <article className="capture-editor-focus card" ref={captureEditorFocusRef}>
                   <div className="row between capture-editor-header-row">
                     <h2>The Block Editor</h2>
                     <div className="row capture-editor-action-row">
@@ -3125,10 +3149,10 @@ function App() {
                   {filteredBrowseNotes.map((note, index) => (
                     <motion.div
                       key={note.id}
-                      initial={{ opacity: 0, y: 30 }}
+                      initial={{ opacity: 0, y: 14 }}
                       whileInView={{ opacity: 1, y: 0 }}
-                      viewport={inViewViewport}
-                      transition={{ ...inViewTransition, delay: index * 0.08 }}
+                      viewport={{ once: false, amount: 0.12 }}
+                      transition={{ duration: 0.34, ease: "easeOut", delay: (index % 3) * 0.02 }}
                     >
                       <TiltCard className="browse-note-card-tilt" maxRotation={6}>
                         <article className="browse-note-card">
@@ -3220,9 +3244,6 @@ function App() {
                     </span>
                   </button>
                 </div>
-                {!isWebGLSupported && (
-                  <p className="muted graph-webgl-hint">WebGL may be blocked on this device. You can still try 3D view.</p>
-                )}
               </div>
             </motion.section>
 

@@ -84,6 +84,9 @@ export function BlockEditor({
     const current = editor.getJSON();
     if (JSON.stringify(next) !== JSON.stringify(current)) {
       editor.commands.setContent(next, { emitUpdate: false });
+      window.requestAnimationFrame(() => {
+        editor.view.dom.scrollTop = 0;
+      });
     }
   }, [editor, initialContent]);
 
