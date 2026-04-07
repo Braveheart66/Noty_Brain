@@ -615,7 +615,8 @@
 }
 
 .workspace-page-body {
-  height: calc(100vh - 5.5rem);
+  min-height: calc(100vh - 5.5rem);
+  height: auto;
 }
 
 /* Utility classes used in graph wrappers when Tailwind utilities are unavailable. */
@@ -939,6 +940,70 @@
 .capture-method-card p {
   color: var(--ink-soft);
   line-height: 1.52;
+}
+
+.capture-import-inner {
+  width: min(1180px, 92vw);
+}
+
+.capture-ingest-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.ingest-card {
+  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel) 95%, transparent);
+  box-shadow: 0 14px 26px rgba(15, 36, 27, 0.1);
+  padding: 0.92rem;
+  height: 100%;
+}
+
+.ingest-card-inner {
+  display: grid;
+  gap: 0.52rem;
+}
+
+.ingest-card-inner h3 {
+  font-size: 1.04rem;
+}
+
+.ingest-form {
+  display: grid;
+  gap: 0.52rem;
+}
+
+.ingest-form textarea {
+  min-height: 124px;
+}
+
+.ingest-url-card {
+  border-top: 3px solid color-mix(in srgb, #0f6ba8 72%, transparent);
+}
+
+.ingest-text-card {
+  border-top: 3px solid color-mix(in srgb, #1f7a63 70%, transparent);
+}
+
+.ingest-pdf-card {
+  border-top: 3px solid color-mix(in srgb, #ae4f1f 70%, transparent);
+}
+
+.ingest-file-picker {
+  border: 1px dashed color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 10px;
+  padding: 0.55rem 0.6rem;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  display: grid;
+  gap: 0.28rem;
+  color: var(--ink-soft);
+}
+
+.ingest-file-picker input[type="file"] {
+  font-size: 0.8rem;
 }
 
 .capture-editor-focus {
@@ -1411,6 +1476,7 @@
   }
 
   .capture-method-grid,
+  .capture-ingest-grid,
   .home-feature-chip-row-inner,
   .graph-stats-grid,
   .graph-steps-grid,

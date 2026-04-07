@@ -12,6 +12,9 @@ import {
   fetchNotes,
   fetchProfile,
   fetchTemplates,
+  ingestPdf,
+  ingestText,
+  ingestUrl,
   refreshAccessToken,
   login,
   register,
@@ -378,6 +381,13 @@ function App() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [templateNameDraft, setTemplateNameDraft] = useState("");
   const [noteActionPendingId, setNoteActionPendingId] = useState<string | null>(null);
+  const [urlImportTitle, setUrlImportTitle] = useState("");
+  const [urlImportValue, setUrlImportValue] = useState("");
+  const [textImportTitle, setTextImportTitle] = useState("");
+  const [textImportValue, setTextImportValue] = useState("");
+  const [pdfImportTitle, setPdfImportTitle] = useState("");
+  const [pdfImportFile, setPdfImportFile] = useState<File | null>(null);
+  const [captureImportPending, setCaptureImportPending] = useState<"url" | "text" | "pdf" | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -412,6 +422,7 @@ function App() {
   const graphRef = useRef<any>(undefined);
   const graphStageRef = useRef<HTMLDivElement | null>(null);
   const signInWaveCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const [graphViewport, setGraphViewport] = useState({ width: 0, height: 0 });
   const webglSupport = useMemo(() => detectWebGLSupport(), []);
   const isWebGLSupported = webglSupport.supported;
@@ -450,30 +461,22 @@ function App() {
       let threeError: string | null = null;
       let twoError: string | null = null;
 
-      if (isWebGLSupported) {
+      if (!disposed) {
+        setIsLoading3DRenderer(true);
+      }
+      try {
+        const { default: ForceGraph3DModule } = await import("react-force-graph-3d");
         if (!disposed) {
-          setIsLoading3DRenderer(true);
+          setForceGraph3D(() => ForceGraph3DModule as GraphRenderer);
+          setGraph3DError(null);
         }
-        try {
-          const { default: ForceGraph3DModule } = await import("react-force-graph-3d");
-          if (!disposed) {
-            setForceGraph3D(() => ForceGraph3DModule as GraphRenderer);
-            setGraph3DError(null);
-          }
-        } catch (error) {
-          threeError = error instanceof Error ? error.message : "unknown 3D error";
-          if (!disposed) {
-            setGraph3DError(`3D renderer failed to load: ${threeError}`);
-          }
-        } finally {
-          if (!disposed) {
-            setIsLoading3DRenderer(false);
-          }
-        }
-      } else {
-        threeError = webglSupport.reason ?? "WebGL is unavailable in this session.";
+      } catch (error) {
+        threeError = error instanceof Error ? error.message : "unknown 3D error";
         if (!disposed) {
-          setGraph3DError(`3D renderer unavailable: ${threeError}`);
+          setGraph3DError(`3D renderer failed to load: ${threeError}`);
+        }
+      } finally {
+        if (!disposed) {
           setIsLoading3DRenderer(false);
         }
       }
@@ -500,7 +503,7 @@ function App() {
     return () => {
       disposed = true;
     };
-  }, [isWebGLSupported, webglSupport.reason]);
+  }, []);
 
   useEffect(() => {
     const isGraphRoute = resolveWorkspacePage(routePath) === "graph";
@@ -1071,8 +1074,17 @@ function App() {
           : link.is_ai_generated
             ? 0.55
             : 0.35;
+
+      if (graphMode === "2d") {
+        return 210 - similarity * 90;
+      }
       return 430 - similarity * 170;
     }
+
+    if (graphMode === "2d") {
+      return link.is_ai_generated ? 74 : 96;
+    }
+
     return link.is_ai_generated ? 84 : 118;
   };
 
@@ -1092,10 +1104,33 @@ function App() {
           : link.is_ai_generated
             ? 0.55
             : 0.35;
+
+      if (graphMode === "2d") {
+        return 0.015 + similarity * 0.045;
+      }
       return 0.004 + similarity * 0.022;
     }
+
+    if (graphMode === "2d") {
+      return link.is_ai_generated ? 0.13 : 0.17;
+    }
+
     return link.is_ai_generated ? 0.06 : 0.11;
   };
+
+  const graphSceneData2D = useMemo(() => {
+    const nodes: GraphNode3D[] = graphSceneData.nodes.map((node) => ({
+      ...node,
+      x: typeof node.x === "number" ? node.x * 0.45 : undefined,
+      y: typeof node.y === "number" ? node.y * 0.45 : undefined,
+      z: undefined,
+    }));
+
+    return {
+      nodes,
+      links: graphSceneData.links,
+    };
+  }, [graphSceneData]);
 
   const fallbackLayout = useMemo(() => {
     const width = 980;
@@ -1321,6 +1356,18 @@ function App() {
     return notes.find((note) => note.id === activeNoteId) ?? null;
   }, [activeNoteId, notes]);
 
+  const hydrateEditorFromNote = (note: Note) => {
+    setEditorTitle(note.title);
+    setEditorIcon(note.icon_emoji || "📝");
+    const sanitizedJson = sanitizeEditorJson(note.content_json);
+    const hasUsableJson = Array.isArray(sanitizedJson.content) && sanitizedJson.content.length > 0;
+    const nextJson = hasUsableJson ? sanitizedJson : plainTextToDoc(note.content);
+    setEditorJson(nextJson);
+    setEditorText(note.content || jsonToPlainText(nextJson));
+    setEditorDirty(false);
+    setIsDraftMode(false);
+  };
+
   useEffect(() => {
     if (workspacePage !== "capture") {
       return;
@@ -1354,15 +1401,7 @@ function App() {
       return;
     }
 
-    setEditorTitle(activeNote.title);
-    setEditorIcon(activeNote.icon_emoji || "📝");
-    const sanitizedJson = sanitizeEditorJson(activeNote.content_json);
-    const hasUsableJson = Array.isArray(sanitizedJson.content) && sanitizedJson.content.length > 0;
-    const nextJson = hasUsableJson ? sanitizedJson : plainTextToDoc(activeNote.content);
-    setEditorJson(nextJson);
-    setEditorText(activeNote.content || jsonToPlainText(nextJson));
-    setEditorDirty(false);
-    setIsDraftMode(false);
+    hydrateEditorFromNote(activeNote);
   }, [activeNote]);
 
   useEffect(() => {
@@ -1700,6 +1739,144 @@ function App() {
     }
   };
 
+  const openNoteForEditing = async (noteId: string) => {
+    setIsDraftMode(false);
+
+    const existingNote = notes.find((note) => note.id === noteId);
+    if (existingNote) {
+      setActiveNoteId(existingNote.id);
+      hydrateEditorFromNote(existingNote);
+      navigateTo("/capture");
+      return;
+    }
+
+    setActiveNoteId(noteId);
+    navigateTo("/capture");
+
+    if (!isAuthenticated) {
+      return;
+    }
+
+    try {
+      const loadedNotes = await runWithAccessToken((activeToken) => fetchNotes(activeToken));
+      setNotes(loadedNotes);
+      const loadedNote = loadedNotes.find((note) => note.id === noteId);
+      if (!loadedNote) {
+        setStatus("Selected note was not found in your workspace.");
+        return;
+      }
+      setActiveNoteId(loadedNote.id);
+      hydrateEditorFromNote(loadedNote);
+    } catch (error) {
+      setStatus(`Could not open note: ${(error as Error).message}`);
+    }
+  };
+
+  const openImportedNoteInEditor = (imported: Note) => {
+    setNotes((current) => [imported, ...current.filter((note) => note.id !== imported.id)]);
+    setActiveNoteId(imported.id);
+    hydrateEditorFromNote(imported);
+    navigateTo("/capture");
+  };
+
+  const handleImportFromUrl = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!isAuthenticated) {
+      setStatus("Sign in first to import from URL.");
+      return;
+    }
+
+    const nextUrl = urlImportValue.trim();
+    if (!nextUrl) {
+      setStatus("Enter a URL to import.");
+      return;
+    }
+
+    try {
+      setCaptureImportPending("url");
+      const imported = await runWithAccessToken((activeToken) =>
+        ingestUrl(activeToken, {
+          url: nextUrl,
+          title: urlImportTitle.trim() || undefined,
+        }),
+      );
+      openImportedNoteInEditor(imported);
+      setUrlImportValue("");
+      setUrlImportTitle("");
+      setStatus(`URL imported: ${imported.title}`);
+      await refreshInsightsAfterMutation();
+    } catch (error) {
+      setStatus(`URL import failed: ${(error as Error).message}`);
+    } finally {
+      setCaptureImportPending(null);
+    }
+  };
+
+  const handleImportFromText = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!isAuthenticated) {
+      setStatus("Sign in first to import text.");
+      return;
+    }
+
+    const nextText = textImportValue.trim();
+    if (!nextText) {
+      setStatus("Paste text to import.");
+      return;
+    }
+
+    try {
+      setCaptureImportPending("text");
+      const imported = await runWithAccessToken((activeToken) =>
+        ingestText(activeToken, {
+          content: nextText,
+          title: textImportTitle.trim() || undefined,
+        }),
+      );
+      openImportedNoteInEditor(imported);
+      setTextImportValue("");
+      setTextImportTitle("");
+      setStatus(`Text imported: ${imported.title}`);
+      await refreshInsightsAfterMutation();
+    } catch (error) {
+      setStatus(`Text import failed: ${(error as Error).message}`);
+    } finally {
+      setCaptureImportPending(null);
+    }
+  };
+
+  const handleImportFromPdf = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!isAuthenticated) {
+      setStatus("Sign in first to upload PDF files.");
+      return;
+    }
+
+    if (!pdfImportFile) {
+      setStatus("Choose a PDF file to upload.");
+      return;
+    }
+
+    try {
+      setCaptureImportPending("pdf");
+      const imported = await runWithAccessToken((activeToken) =>
+        ingestPdf(activeToken, pdfImportFile, pdfImportTitle.trim() || undefined),
+      );
+      openImportedNoteInEditor(imported);
+      setPdfImportTitle("");
+      setPdfImportFile(null);
+      if (pdfInputRef.current) {
+        pdfInputRef.current.value = "";
+      }
+      setStatus(`PDF imported: ${imported.title}`);
+      await refreshInsightsAfterMutation();
+    } catch (error) {
+      setStatus(`PDF import failed: ${(error as Error).message}`);
+    } finally {
+      setCaptureImportPending(null);
+    }
+  };
+
   const handleCommandAction = (actionId: string) => {
     if (actionId.startsWith("template:")) {
       const templateId = actionId.replace("template:", "");
@@ -1723,7 +1900,7 @@ function App() {
     }
     if (actionId === "import-url") {
       navigateTo("/capture");
-      setStatus("Use Capture templates and editor workflows to ingest and organize content.");
+      setStatus("Capture now supports URL scraping, text import, and PDF upload.");
       return;
     }
     if (actionId === "ask-ai") {
@@ -1843,8 +2020,7 @@ function App() {
   const handleGraph3DRuntimeError = (error: Error) => {
     const reason = error.message?.trim() || "WebGL context could not be created for 3D graph.";
     setGraph3DError(reason);
-    setGraphMode("2d");
-    setStatus("3D view failed to initialize on this device/browser. Switched to 2D view.");
+    setStatus("3D view failed to initialize. Click 3D View to retry or switch to 2D.");
   };
 
   const ForceGraph3DComponent = forceGraph3D;
@@ -1865,7 +2041,7 @@ function App() {
       return;
     }
 
-    const timer = window.setTimeout(() => {
+    const alignGraphView = () => {
       const graphApi = graphRef.current;
       if (!graphApi) {
         return;
@@ -1880,10 +2056,19 @@ function App() {
           { x: 0, y: 0, z: 0 },
           800,
         );
+      } else {
+        graphApi.centerAt?.(0, 0, 800);
+        graphApi.zoom?.(1.08, 800);
       }
-    }, 300);
+    };
 
-    return () => window.clearTimeout(timer);
+    const firstTimer = window.setTimeout(alignGraphView, 300);
+    const secondTimer = window.setTimeout(alignGraphView, 950);
+
+    return () => {
+      window.clearTimeout(firstTimer);
+      window.clearTimeout(secondTimer);
+    };
   }, [effectiveGraphMode, graphSceneData, graphViewport]);
 
   useEffect(() => {
@@ -1897,13 +2082,7 @@ function App() {
 
   const handleToggleGraphMode = (mode: GraphRenderMode) => {
     if (mode === "3d") {
-      if (!isWebGLSupported) {
-        const reason = webglSupport.reason ?? "WebGL is unavailable in this browser session.";
-        setGraph3DError(reason);
-        setGraphMode("2d");
-        setStatus(`3D view unavailable: ${reason}`);
-        return;
-      }
+      const webglWarning = !isWebGLSupported ? webglSupport.reason : null;
 
       if (!has3DRenderer && isLoading3DRenderer) {
         setStatus("3D renderer is still loading. Please wait a moment.");
@@ -1938,7 +2117,11 @@ function App() {
       }
 
       setGraphMode("3d");
-      setStatus(isRetrying ? "Retrying 3D view..." : "Graph mode set to 3D.");
+      if (webglWarning) {
+        setStatus(`Trying 3D view. ${webglWarning}`);
+      } else {
+        setStatus(isRetrying ? "Retrying 3D view..." : "Graph mode set to 3D.");
+      }
       return;
     }
 
@@ -1966,6 +2149,9 @@ function App() {
         { x: 0, y: 0, z: 0 },
         800,
       );
+    } else {
+      graphApi.centerAt?.(0, 0, 700);
+      graphApi.zoom?.(1.12, 700);
     }
     setStatus("Graph recentered in view.");
   };
@@ -2346,8 +2532,7 @@ function App() {
                       type="button"
                       className="welcome-note-card"
                       onClick={() => {
-                        setActiveNoteId(note.id);
-                        navigateTo("/capture");
+                        void openNoteForEditing(note.id);
                       }}
                     >
                       <span className="welcome-note-emoji">
@@ -2380,8 +2565,7 @@ function App() {
           templates={templates}
           onClose={() => setShowCommandPalette(false)}
           onOpenNote={(noteId) => {
-            setActiveNoteId(noteId);
-            navigateTo("/capture");
+            void openNoteForEditing(noteId);
           }}
           onAction={handleCommandAction}
         />
@@ -2415,6 +2599,123 @@ function App() {
                 </p>
                 <div className="flow-heading-underline-shell">
                   <motion.div layoutId="flow-heading-underline" className="flow-heading-underline" />
+                </div>
+              </div>
+            </motion.section>
+
+            <motion.section
+              className="workspace-flow-section"
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={inViewViewport}
+              transition={inViewTransition}
+            >
+              <div className="flow-inner capture-import-inner">
+                <p className="flow-section-label">Import Sources</p>
+                <h2>Bring in notes from URL, text, and PDF.</h2>
+                <p className="muted">
+                  Scrape web pages, paste raw text, or upload PDF files and continue editing immediately in the block
+                  editor.
+                </p>
+
+                <div className="capture-ingest-grid">
+                  <motion.div
+                    initial={{ opacity: 0, y: 30 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={inViewViewport}
+                    transition={inViewTransition}
+                  >
+                    <TiltCard className="ingest-card ingest-url-card">
+                      <article className="ingest-card-inner">
+                        <h3>Web Scrape URL</h3>
+                        <p className="muted">Extract article/page content into an editable note.</p>
+                        <form className="ingest-form" onSubmit={handleImportFromUrl}>
+                          <input
+                            type="url"
+                            placeholder="https://example.com/article"
+                            value={urlImportValue}
+                            onChange={(event) => setUrlImportValue(event.target.value)}
+                            required
+                          />
+                          <input
+                            placeholder="Optional note title"
+                            value={urlImportTitle}
+                            onChange={(event) => setUrlImportTitle(event.target.value)}
+                          />
+                          <button type="submit" disabled={!isAuthenticated || captureImportPending !== null}>
+                            {captureImportPending === "url" ? "Importing..." : "Import URL"}
+                          </button>
+                        </form>
+                      </article>
+                    </TiltCard>
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 30 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={inViewViewport}
+                    transition={{ ...inViewTransition, delay: 0.08 }}
+                  >
+                    <TiltCard className="ingest-card ingest-text-card">
+                      <article className="ingest-card-inner">
+                        <h3>Paste Raw Text</h3>
+                        <p className="muted">Turn copied content into a structured note instantly.</p>
+                        <form className="ingest-form" onSubmit={handleImportFromText}>
+                          <input
+                            placeholder="Optional note title"
+                            value={textImportTitle}
+                            onChange={(event) => setTextImportTitle(event.target.value)}
+                          />
+                          <textarea
+                            placeholder="Paste text content to import"
+                            value={textImportValue}
+                            onChange={(event) => setTextImportValue(event.target.value)}
+                            rows={6}
+                            required
+                          />
+                          <button type="submit" disabled={!isAuthenticated || captureImportPending !== null}>
+                            {captureImportPending === "text" ? "Importing..." : "Import Text"}
+                          </button>
+                        </form>
+                      </article>
+                    </TiltCard>
+                  </motion.div>
+
+                  <motion.div
+                    initial={{ opacity: 0, y: 30 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={inViewViewport}
+                    transition={{ ...inViewTransition, delay: 0.16 }}
+                  >
+                    <TiltCard className="ingest-card ingest-pdf-card">
+                      <article className="ingest-card-inner">
+                        <h3>Upload PDF</h3>
+                        <p className="muted">Import document content from PDF files.</p>
+                        <form className="ingest-form" onSubmit={handleImportFromPdf}>
+                          <input
+                            placeholder="Optional note title"
+                            value={pdfImportTitle}
+                            onChange={(event) => setPdfImportTitle(event.target.value)}
+                          />
+
+                          <label className="ingest-file-picker">
+                            <span>{pdfImportFile ? pdfImportFile.name : "Choose PDF file"}</span>
+                            <input
+                              ref={pdfInputRef}
+                              type="file"
+                              accept=".pdf,application/pdf"
+                              onChange={(event) => setPdfImportFile(event.target.files?.[0] ?? null)}
+                              required
+                            />
+                          </label>
+
+                          <button type="submit" disabled={!isAuthenticated || captureImportPending !== null}>
+                            {captureImportPending === "pdf" ? "Uploading..." : "Upload PDF"}
+                          </button>
+                        </form>
+                      </article>
+                    </TiltCard>
+                  </motion.div>
                 </div>
               </div>
             </motion.section>
@@ -2723,9 +3024,7 @@ function App() {
                         type="button"
                         className="button-neutral"
                         onClick={() => {
-                          setIsDraftMode(false);
-                          setActiveNoteId(result.note_id);
-                          navigateTo("/capture");
+                          void openNoteForEditing(result.note_id);
                         }}
                       >
                         Open Note
@@ -2845,9 +3144,7 @@ function App() {
                             type="button"
                             className="button-neutral"
                             onClick={() => {
-                              setIsDraftMode(false);
-                              setActiveNoteId(note.id);
-                              navigateTo("/capture");
+                              void openNoteForEditing(note.id);
                             }}
                           >
                             Open Note
@@ -2917,8 +3214,7 @@ function App() {
                     type="button"
                     className={effectiveGraphMode === "3d" ? "graph-view-tab-button active" : "graph-view-tab-button"}
                     onClick={() => handleToggleGraphMode("3d")}
-                    disabled={isLoading3DRenderer || !isWebGLSupported}
-                    title={!isWebGLSupported ? (webglSupport.reason ?? "WebGL unavailable") : undefined}
+                    disabled={isLoading3DRenderer}
                   >
                     {effectiveGraphMode === "3d" && <motion.span layoutId="graph-view-underline" className="graph-view-underline" />}
                     <span className={effectiveGraphMode === "3d" ? "graph-view-tab-label active-label" : "graph-view-tab-label"}>
@@ -2927,7 +3223,7 @@ function App() {
                   </button>
                 </div>
                 {!isWebGLSupported && (
-                  <p className="muted graph-webgl-hint">3D view is unavailable: {webglSupport.reason}</p>
+                  <p className="muted graph-webgl-hint">WebGL may be blocked on this device. You can still try 3D view.</p>
                 )}
               </div>
             </motion.section>
@@ -2993,7 +3289,7 @@ function App() {
 
                 <div
                   className="relative w-full overflow-hidden graph-render-shell"
-                  style={{ height: "600px", maxWidth: "100%" }}
+                  style={{ height: "520px", maxWidth: "100%" }}
                   ref={graphStageRef}
                 >
                   <div className="relative w-full overflow-hidden graph-stage-frame" style={{ height: "100%", maxWidth: "100%" }}>
@@ -3035,7 +3331,7 @@ function App() {
                           ))}
                         </svg>
                       </div>
-                    ) : effectiveGraphMode === "3d" && ForceGraph3DComponent && isWebGLSupported ? (
+                    ) : effectiveGraphMode === "3d" && ForceGraph3DComponent ? (
                       <GraphRendererBoundary
                         resetKey={`3d-${graph3DRetryNonce}`}
                         onError={handleGraph3DRuntimeError}
@@ -3081,7 +3377,7 @@ function App() {
                       <ForceGraph2DComponent
                         ref={graphRef}
                         className="graph-renderer-element"
-                        graphData={graphSceneData}
+                        graphData={graphSceneData2D}
                         width={graphViewport.width}
                         height={graphViewport.height}
                         style={{ width: "100%", height: "100%", maxWidth: "100%", display: "block" }}
@@ -3207,8 +3503,7 @@ function App() {
         templates={templates}
         onClose={() => setShowCommandPalette(false)}
         onOpenNote={(noteId) => {
-          setActiveNoteId(noteId);
-          navigateTo("/capture");
+          void openNoteForEditing(noteId);
         }}
         onAction={handleCommandAction}
       />

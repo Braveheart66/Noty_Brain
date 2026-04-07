@@ -2088,6 +2088,7 @@ button:disabled {
 
 .workspace-page-body {
   width: 100%;
-  height: calc(100vh - 6rem);
+  min-height: calc(100vh - 6rem);
+  height: auto;
   flex-grow: 1;
 }
