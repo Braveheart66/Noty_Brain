@@ -1502,7 +1502,85 @@ button:disabled {
 }
 
 .floating-field input:focus + span,
-.floating-field input:not(:placeholder-shown) + span {
+.floating-field input:not(:placeholder-shown) + span,
+.floating-field .password-field-wrap input:focus ~ * ~ span,
+.floating-field .password-field-wrap input:not(:placeholder-shown) ~ * ~ span {
+  top: 0.28rem;
+  font-size: 0.65rem;
+  color: #1f7a63;
+}
+
+/* Move the span label up when input is inside password-field-wrap */
+.floating-field .password-field-wrap + span {
+  pointer-events: none;
+}
+
+.floating-field .password-field-wrap input:focus + .password-toggle + * + span,
+.floating-field .password-field-wrap input:not(:placeholder-shown) + .password-toggle + * + span {
+  top: 0.28rem;
+  font-size: 0.65rem;
+  color: #1f7a63;
+}
+
+/* Password toggle */
+.password-field-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.password-field-wrap input {
+  padding-right: 2.8rem;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 0.55rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.2s ease, color 0.2s ease, background 0.15s ease;
+}
+
+.password-toggle:hover {
+  opacity: 1;
+  color: var(--accent);
+  background: rgba(31, 122, 99, 0.08);
+}
+
+.password-toggle:active {
+  opacity: 1;
+  background: rgba(31, 122, 99, 0.14);
+}
+
+.password-toggle svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+/* Ensure floating label works with the wrapper div */
+.floating-field .password-field-wrap ~ span {
+  position: absolute;
+  left: 0.74rem;
+  top: 0.8rem;
+  color: var(--ink-soft);
+  font-size: 0.79rem;
+  pointer-events: none;
+  transition: all 0.2s ease;
+}
+
+.floating-field:has(.password-field-wrap input:focus) > span,
+.floating-field:has(.password-field-wrap input:not(:placeholder-shown)) > span {
   top: 0.28rem;
   font-size: 0.65rem;
   color: #1f7a63;

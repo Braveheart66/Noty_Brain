@@ -294,6 +294,8 @@ function App() {
   const [loginForm, setLoginForm] = useState<LoginFormState>({ email: "", password: "" });
   const [registerForm, setRegisterForm] = useState<RegisterFormState>({ displayName: "", email: "", password: "" });
   const [authMode, setAuthMode] = useState<AuthMode>("register");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [token, setToken] = useState("");
   const [refreshToken, setRefreshToken] = useState("");
   const [authBootstrapping, setAuthBootstrapping] = useState(true);
@@ -2057,18 +2059,33 @@ function App() {
                   <span>Email</span>
                 </label>
                 <label className="floating-field">
-                  <input
-                    type="password"
-                    placeholder=" "
-                    value={registerForm.password}
-                    onChange={(event) =>
-                      setRegisterForm((current) => ({
-                        ...current,
-                        password: event.target.value,
-                      }))
-                    }
-                    required
-                  />
+                  <div className="password-field-wrap">
+                    <input
+                      type={showRegisterPassword ? "text" : "password"}
+                      placeholder=" "
+                      value={registerForm.password}
+                      onChange={(event) =>
+                        setRegisterForm((current) => ({
+                          ...current,
+                          password: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      onClick={() => setShowRegisterPassword((v) => !v)}
+                      aria-label={showRegisterPassword ? "Hide password" : "Show password"}
+                      tabIndex={-1}
+                    >
+                      {showRegisterPassword ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      )}
+                    </button>
+                  </div>
                   <span>Password</span>
                 </label>
                 <button type="submit">Create Account</button>
@@ -2097,18 +2114,33 @@ function App() {
                   <span>Email</span>
                 </label>
                 <label className="floating-field">
-                  <input
-                    type="password"
-                    placeholder=" "
-                    value={loginForm.password}
-                    onChange={(event) =>
-                      setLoginForm((current) => ({
-                        ...current,
-                        password: event.target.value,
-                      }))
-                    }
-                    required
-                  />
+                  <div className="password-field-wrap">
+                    <input
+                      type={showLoginPassword ? "text" : "password"}
+                      placeholder=" "
+                      value={loginForm.password}
+                      onChange={(event) =>
+                        setLoginForm((current) => ({
+                          ...current,
+                          password: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      onClick={() => setShowLoginPassword((v) => !v)}
+                      aria-label={showLoginPassword ? "Hide password" : "Show password"}
+                      tabIndex={-1}
+                    >
+                      {showLoginPassword ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      )}
+                    </button>
+                  </div>
                   <span>Password</span>
                 </label>
                 <button type="submit">Sign In</button>
