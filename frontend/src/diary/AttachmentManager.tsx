@@ -2,14 +2,7 @@ import { useRef } from "react";
 import type { DiaryDay, DiaryMoment, DiaryAttachment, AttachmentType } from "./types";
 import { useDiary } from "./DiaryProvider";
 import { AttachmentItem } from "./AttachmentItem";
-
-const fileToDataUrl = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
+import { saveAttachment, deleteAttachment } from "./hooks/useAttachmentStore";
 
 const resolveType = (file: File): AttachmentType | null => {
   if (file.type.startsWith("image/")) {
@@ -24,7 +17,15 @@ const resolveType = (file: File): AttachmentType | null => {
   return null;
 };
 
-export const AttachmentManager = ({ day, entry, disabled }: { day: DiaryDay; entry: DiaryMoment; disabled?: boolean }) => {
+export const AttachmentManager = ({
+  day,
+  entry,
+  disabled,
+}: {
+  day: DiaryDay;
+  entry: DiaryMoment;
+  disabled?: boolean;
+}) => {
   const { addAttachment, removeAttachment, updateAttachment } = useDiary();
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -46,32 +47,68 @@ export const AttachmentManager = ({ day, entry, disabled }: { day: DiaryDay; ent
       if (!type) {
         continue;
       }
-      const dataUrl = await fileToDataUrl(file);
-      const attachment: DiaryAttachment = {
-        id: crypto.randomUUID(),
-        type,
-        name: file.name,
-        dataUrl,
-        caption: "",
-        createdAt: new Date().toISOString(),
-        rotation: Math.random() * 6 - 3,
-      };
-      addAttachment(day.date, entry.id, attachment);
+      
+      const id = crypto.randomUUID();
+      const rotation = Math.floor(Math.random() * 7) - 3;
+      
+      try {
+        // Save the raw Blob in IndexedDB
+        await saveAttachment(id, entry.id, file, file.name, file.type, "", rotation);
+
+        // Save only metadata in localStorage (dataUrl is empty)
+        const attachment: DiaryAttachment = {
+          id,
+          type,
+          name: file.name,
+          dataUrl: "", // Keep empty to avoid quota limit
+          caption: "",
+          createdAt: new Date().toISOString(),
+          rotation,
+        };
+        addAttachment(day.date, entry.id, attachment);
+      } catch (error) {
+        console.error("Failed to save attachment:", error);
+      }
     }
 
     event.target.value = "";
   };
 
+  const handleRemove = async (attachmentId: string) => {
+    try {
+      // Remove from IndexedDB
+      await deleteAttachment(attachmentId);
+      // Remove metadata from state
+      removeAttachment(day.date, entry.id, attachmentId);
+    } catch (error) {
+      console.error("Failed to delete attachment:", error);
+    }
+  };
+
+  const handleCaptionChange = async (attachmentId: string, caption: string) => {
+    try {
+      // Update state metadata
+      updateAttachment(day.date, entry.id, attachmentId, { caption });
+    } catch (error) {
+      console.error("Failed to update attachment caption:", error);
+    }
+  };
+
   return (
     <section className="mt-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs uppercase tracking-[0.2em] text-black/50">Attachments</h3>
+      {/* Attachments Section Header */}
+      <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: "rgba(0,0,0,0.06)" }}>
+        <h3 className="text-xs uppercase tracking-[0.2em] font-semibold" style={{ color: "var(--theme-ink)", opacity: 0.6 }}>
+          Attachments ({entry.attachments ? entry.attachments.length : 0})
+        </h3>
         <button
           type="button"
-          className="rounded-full border border-black/20 px-3 py-1 text-xs uppercase tracking-[0.2em]"
+          className="rounded-full border px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.15em] transition hover:bg-black/5 active:scale-95"
+          style={{ borderColor: "rgba(0,0,0,0.15)", color: "var(--theme-ink)" }}
           onClick={handlePick}
+          disabled={disabled}
         >
-          Attach
+          Attach Media
         </button>
         <input
           ref={inputRef}
@@ -80,20 +117,27 @@ export const AttachmentManager = ({ day, entry, disabled }: { day: DiaryDay; ent
           className="hidden"
           multiple
           onChange={handleFiles}
-          data-entry-id={entry.id}
+          disabled={disabled}
         />
       </div>
 
-      <div className="mt-3 grid gap-4 md:grid-cols-2">
-        {entry.attachments.map((attachment) => (
-          <AttachmentItem
-            key={attachment.id}
-            attachment={attachment}
-            onRemove={() => removeAttachment(day.date, entry.id, attachment.id)}
-            onCaptionChange={(caption) => updateAttachment(day.date, entry.id, attachment.id, { caption })}
-            disabled={disabled}
-          />
-        ))}
+      {/* Decorative Divider */}
+      {entry.attachments && entry.attachments.length > 0 && (
+        <div className="pinboard-divider" />
+      )}
+
+      {/* Masonry-Style Grid for Attachment Cards */}
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 items-start">
+        {entry.attachments &&
+          entry.attachments.map((attachment) => (
+            <AttachmentItem
+              key={attachment.id}
+              attachment={attachment}
+              onRemove={() => handleRemove(attachment.id)}
+              onCaptionChange={(caption) => handleCaptionChange(attachment.id, caption)}
+              disabled={disabled}
+            />
+          ))}
       </div>
     </section>
   );

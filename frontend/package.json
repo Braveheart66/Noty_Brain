@@ -16,6 +16,8 @@
     "@tiptap/starter-kit": "^3.21.0",
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
+    "idb": "^8.0.3",
+    "lucide-react": "^1.16.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "tailwind-merge": "^3.5.0",

@@ -84,6 +84,7 @@ const DiaryShell = () => {
               pages={pages}
               calendarOpen={calendarOpen}
               onToggleCalendar={() => setCalendarOpen((current) => !current)}
+              onBackToCover={() => setIsOpen(false)}
             />
             <ThemeSwitcher
               currentTheme={state.theme}
