@@ -44,15 +44,7 @@ export const DiaryBook = ({ pages, calendarOpen, onToggleCalendar }: DiaryBookPr
   const startIndex = isTwoPage ? pageIndex - (pageIndex % 2) : pageIndex;
   const leftPage = pages[startIndex];
   const rightPage = pages[startIndex + 1];
-  const flipAudioRef = useRef<HTMLAudioElement | null>(null);
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
-
-  useEffect(() => {
-    if (!flipAudioRef.current) {
-      flipAudioRef.current = new Audio("/sounds/page-flip.mp3");
-      flipAudioRef.current.volume = 0.3;
-    }
-  }, []);
 
   const playRustle = useCallback(() => {
     const context = new AudioContext();
@@ -74,14 +66,6 @@ export const DiaryBook = ({ pages, calendarOpen, onToggleCalendar }: DiaryBookPr
   }, []);
 
   const playFlipSound = useCallback(() => {
-    const audio = flipAudioRef.current;
-    if (audio) {
-      audio.currentTime = 0;
-      void audio.play().catch(() => {
-        playRustle();
-      });
-      return;
-    }
     playRustle();
   }, [playRustle]);
 

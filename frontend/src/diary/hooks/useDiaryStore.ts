@@ -71,19 +71,49 @@ export const useDiaryStore = () => {
 
   const saveTimeout = useRef<number | null>(null);
 
+  const persistState = useCallback((nextState: DiaryState) => {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "QuotaExceededError") {
+        const reduced: DiaryState = {
+          ...nextState,
+          days: nextState.days.map((day) => ({
+            ...day,
+            entries: day.entries.map((entry) => ({
+              ...entry,
+              attachments: entry.attachments.map((attachment) => ({
+                ...attachment,
+                dataUrl: "",
+              })),
+            })),
+          })),
+        };
+        try {
+          window.localStorage.setItem(STORAGE_KEY, JSON.stringify(reduced));
+          console.warn("Diary storage quota exceeded. Attachments were trimmed from storage.");
+        } catch {
+          console.warn("Diary storage failed. Consider exporting entries and clearing attachments.");
+        }
+        return;
+      }
+      console.warn("Diary storage failed.");
+    }
+  }, []);
+
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    persistState(state);
+  }, [persistState, state]);
 
   const scheduleSave = useCallback(() => {
     if (saveTimeout.current) {
       window.clearTimeout(saveTimeout.current);
     }
     saveTimeout.current = window.setTimeout(() => {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      persistState(state);
       saveTimeout.current = null;
     }, 1500);
-  }, [state]);
+  }, [persistState, state]);
 
   const setTheme = useCallback((theme: DiaryTheme) => {
     setState((current) => ({ ...current, theme }));
@@ -230,8 +260,8 @@ export const useDiaryStore = () => {
   const moodPalette = useMemo(() => moodOptions, []);
 
   const forceSave = useCallback(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    persistState(state);
+  }, [persistState, state]);
 
   return {
     state,
