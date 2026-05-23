@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import type { DiaryDay, DiaryMoment, DiaryAttachment, AttachmentType } from "./types";
 import { useDiary } from "./DiaryProvider";
 import { AttachmentItem } from "./AttachmentItem";
@@ -26,7 +26,6 @@ const resolveType = (file: File): AttachmentType | null => {
 
 export const AttachmentManager = ({ day, entry, disabled }: { day: DiaryDay; entry: DiaryMoment; disabled?: boolean }) => {
   const { addAttachment, removeAttachment, updateAttachment } = useDiary();
-  const [isOpen, setIsOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const handlePick = () => {

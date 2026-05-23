@@ -1,6 +1,9 @@
 import { useEffect } from "react";
 
-export const useAudioVisualizer = (audioRef: React.RefObject<HTMLAudioElement>, canvasRef: React.RefObject<HTMLCanvasElement>) => {
+export const useAudioVisualizer = (
+  audioRef: React.RefObject<HTMLAudioElement | null>,
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
+) => {
   useEffect(() => {
     const audio = audioRef.current;
     const canvas = canvasRef.current;
