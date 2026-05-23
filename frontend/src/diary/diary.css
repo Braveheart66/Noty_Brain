@@ -1,0 +1,219 @@
+@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=IM+Fell+English:ital@0;1&family=JetBrains+Mono:wght@400;600&family=Orbitron:wght@400;600&family=Share+Tech+Mono&family=Caveat:wght@400;600&family=Lora:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,600&family=DM+Sans:wght@400;500;600&family=Libre+Baskerville:wght@400;700&display=swap");
+
+.diary-root {
+  --diary-bg: #2c1a0e;
+  --diary-page: #f5ecd7;
+  --diary-ink: #1a0a00;
+  --diary-accent: #8b6914;
+  --diary-accent-2: #a23320;
+  --diary-line: rgba(102, 76, 38, 0.18);
+  --diary-font-heading: "Playfair Display", serif;
+  --diary-font-body: "IM Fell English", serif;
+  --diary-font-ui: "JetBrains Mono", monospace;
+  background: var(--diary-bg);
+  color: var(--diary-ink);
+}
+
+.diary-root[data-theme="vintage"] {
+  --diary-bg: #2c1a0e;
+  --diary-page: #f5ecd7;
+  --diary-ink: #1a0a00;
+  --diary-accent: #8b6914;
+  --diary-accent-2: #c1513a;
+  --diary-line: rgba(102, 76, 38, 0.2);
+  --diary-font-heading: "Playfair Display", serif;
+  --diary-font-body: "IM Fell English", serif;
+  --diary-font-ui: "JetBrains Mono", monospace;
+}
+
+.diary-root[data-theme="neon"] {
+  --diary-bg: #080b14;
+  --diary-page: #0d1117;
+  --diary-ink: #e0e0ff;
+  --diary-accent: #ff2d78;
+  --diary-accent-2: #00f5ff;
+  --diary-line: rgba(0, 245, 255, 0.2);
+  --diary-font-heading: "Orbitron", sans-serif;
+  --diary-font-body: "Share Tech Mono", monospace;
+  --diary-font-ui: "JetBrains Mono", monospace;
+}
+
+.diary-root[data-theme="cottage"] {
+  --diary-bg: #f0ebe3;
+  --diary-page: #fffef9;
+  --diary-ink: #3d2b1f;
+  --diary-accent: #7d9e6b;
+  --diary-accent-2: #c17e74;
+  --diary-line: rgba(125, 158, 107, 0.25);
+  --diary-font-heading: "Caveat", cursive;
+  --diary-font-body: "Lora", serif;
+  --diary-font-ui: "DM Sans", sans-serif;
+}
+
+.diary-root[data-theme="studio"] {
+  --diary-bg: #f2f0ed;
+  --diary-page: #fafaf8;
+  --diary-ink: #1c1c1c;
+  --diary-accent: #c0392b;
+  --diary-accent-2: #3a3a3a;
+  --diary-line: rgba(28, 28, 28, 0.12);
+  --diary-font-heading: "Cormorant Garamond", serif;
+  --diary-font-body: "Libre Baskerville", serif;
+  --diary-font-ui: "DM Sans", sans-serif;
+}
+
+.diary-cover {
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.2), transparent 45%),
+    radial-gradient(circle at 80% 78%, rgba(0, 0, 0, 0.28), transparent 45%),
+    linear-gradient(135deg, rgba(0, 0, 0, 0.2), transparent 48%);
+}
+
+.diary-page-surface {
+  background-color: var(--diary-page);
+  background-image:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.03), transparent 25%),
+    repeating-linear-gradient(
+      180deg,
+      transparent,
+      transparent 30px,
+      var(--diary-line) 31px
+    );
+  position: relative;
+}
+
+.diary-page-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='table' tableValues='0 0.08'/></feComponentTransfer></filter><rect width='220' height='220' filter='url(%23n)' opacity='0.45'/></svg>");
+  mix-blend-mode: multiply;
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.diary-page-vignette {
+  position: absolute;
+  inset: 0;
+  border-radius: 26px;
+  box-shadow: inset 0 0 60px rgba(20, 10, 0, 0.2);
+  pointer-events: none;
+}
+
+.diary-neon-overlay {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    180deg,
+    rgba(0, 245, 255, 0.06) 0,
+    rgba(0, 245, 255, 0.06) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+}
+
+.diary-root[data-theme="neon"] .diary-neon-overlay {
+  opacity: 1;
+}
+
+.diary-root[data-theme="neon"] .diary-page-surface {
+  box-shadow: 0 0 20px rgba(255, 45, 120, 0.25), 0 0 60px rgba(0, 245, 255, 0.15);
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      rgba(0, 245, 255, 0.08) 0,
+      rgba(0, 245, 255, 0.08) 1px,
+      transparent 1px,
+      transparent 22px
+    ),
+    repeating-linear-gradient(
+      180deg,
+      rgba(0, 245, 255, 0.08) 0,
+      rgba(0, 245, 255, 0.08) 1px,
+      transparent 1px,
+      transparent 22px
+    );
+}
+
+.diary-title-glitch {
+  position: relative;
+}
+
+.diary-root[data-theme="neon"] .diary-title-glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  left: 2px;
+  top: 1px;
+  color: var(--diary-accent);
+  opacity: 0.6;
+  animation: glitch 2.4s infinite;
+}
+
+@keyframes glitch {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(-2px, 1px); }
+  40% { transform: translate(2px, -1px); }
+  60% { transform: translate(-1px, 1px); }
+  80% { transform: translate(1px, -1px); }
+  100% { transform: translate(0, 0); }
+}
+
+.diary-ribbon {
+  position: relative;
+  padding: 0.6rem 1.4rem;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 999px;
+}
+
+.diary-ribbon::after {
+  content: "";
+  position: absolute;
+  right: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left: 12px solid rgba(255, 255, 255, 0.88);
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+}
+
+.diary-attachment-tape {
+  position: absolute;
+  top: -10px;
+  left: 22%;
+  width: 56px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(120, 120, 120, 0.3);
+  transform: rotate(-4deg);
+  border-radius: 4px;
+}
+
+.diary-flip-shadow {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.2), transparent 35%);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+@media (max-width: 900px) {
+  .diary-book-spread {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  .diary-ui-hidden,
+  .diary-toolbar,
+  .diary-theme-switcher,
+  .diary-calendar-panel {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+  }
+}

@@ -22,6 +22,7 @@ export const AnimatedNavFramer = ({ onNavigate, currentPage = "home" }: NavProps
     { label: "Capture", path: "/capture" },
     { label: "Explore", path: "/explore" },
     { label: "Graph Lab", path: "/graph" },
+    { label: "Diary", path: "/diary" },
   ];
 
   const handleTabClick = (path: string) => {
@@ -34,6 +35,7 @@ export const AnimatedNavFramer = ({ onNavigate, currentPage = "home" }: NavProps
     if (tab.label === "Capture") return currentPage === "capture";
     if (tab.label === "Explore") return currentPage === "explore";
     if (tab.label === "Graph Lab") return currentPage === "graph";
+    if (tab.label === "Diary") return currentPage === "diary";
     return false;
   };
 

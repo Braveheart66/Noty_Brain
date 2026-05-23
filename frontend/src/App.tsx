@@ -38,6 +38,7 @@ import { CommandPalette } from "./components/workspace/CommandPalette";
 import { SoftwareGraph3DCanvas } from "./components/workspace/SoftwareGraph3DCanvas.tsx";
 import { TemplatePickerModal } from "./components/workspace/TemplatePickerModal";
 import { AnimatedNavFramer } from "./components/ui/navigation-menu";
+import DiaryApp from "./diary/DiaryApp";
 import { NoteParticleCanvas } from "./components/ui/NoteParticleCanvas.tsx";
 import { TiltCard } from "./components/ui/tilt-card";
 import { FeatureSection } from "./components/ui/feature-section";
@@ -62,7 +63,7 @@ const CLUSTER_PALETTE = [
 
 type EdgeViewMode = "all" | "ai" | "manual";
 type GraphRenderMode = "3d" | "2d";
-type WorkspacePage = "home" | "capture" | "explore" | "graph";
+type WorkspacePage = "home" | "capture" | "explore" | "graph" | "diary";
 type AuthMode = "register" | "login";
 type BrowseSource = "all" | "notes" | "imports";
 
@@ -269,6 +270,9 @@ function resolveWorkspacePage(path: string): WorkspacePage {
   }
   if (path.startsWith("/graph")) {
     return "graph";
+  }
+  if (path.startsWith("/diary")) {
+    return "diary";
   }
   return "capture";
 }
@@ -2344,6 +2348,15 @@ function App() {
         />
 
         <footer className="status">Status: {status}</footer>
+      </div>
+    );
+  }
+
+  if (workspacePage === "diary") {
+    return (
+      <div className="shell workspace-shell">
+        <AnimatedNavFramer onNavigate={navigateTo} currentPage={workspacePage} />
+        <DiaryApp />
       </div>
     );
   }
