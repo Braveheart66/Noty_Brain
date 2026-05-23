@@ -1556,11 +1556,13 @@ button:disabled {
   opacity: 1;
   color: var(--accent);
   background: rgba(31, 122, 99, 0.08);
+  transform: translateY(-50%);
 }
 
 .password-toggle:active {
   opacity: 1;
   background: rgba(31, 122, 99, 0.14);
+  transform: translateY(-50%);
 }
 
 .password-toggle svg {
